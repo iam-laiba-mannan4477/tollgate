@@ -75,8 +75,13 @@ class StampStore:
             self._records[_hash(stamp)] = record
         return stamp
 
-    def spend(self, stamp: object, amount_cents: object, recipient: object) -> SpendResult:
-        """Use a stamp once. Fails closed: anything odd returns a non-OK result."""
+    def spend(self, stamp: object, amount_cents: object, recipient: object,
+              request_id: object = None) -> SpendResult:
+        """Use a stamp once. Fails closed: anything odd returns a non-OK result.
+
+        If `request_id` is given (the executor always gives it), it must match the
+        request the stamp was issued for.
+        """
         if not isinstance(stamp, str) or not stamp or len(stamp) > 256:
             return SpendResult.UNKNOWN
         key = _hash(stamp)
@@ -91,6 +96,8 @@ class StampStore:
             if self._clock() >= record.expires_at:
                 return SpendResult.EXPIRED
             if not hmac.compare_digest(record.binding, attempt):
+                return SpendResult.MISMATCH
+            if request_id is not None and request_id != record.request_id:
                 return SpendResult.MISMATCH
             return SpendResult.OK
 

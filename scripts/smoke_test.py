@@ -5,7 +5,6 @@ Usage: .venv\Scripts\python.exe scripts\smoke_test.py
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -14,20 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dotenv import load_dotenv  # noqa: E402
 
 from tollgate.config import Mode, get_mode, missing_sandbox_vars  # noqa: E402
-
-
-def make_sandbox_gateway():
-    """Build a gateway that is hard-wired to the sandbox environment."""
-    import braintree
-
-    return braintree.BraintreeGateway(
-        braintree.Configuration(
-            environment=braintree.Environment.Sandbox,
-            merchant_id=os.environ["BRAINTREE_MERCHANT_ID"],
-            public_key=os.environ["BRAINTREE_PUBLIC_KEY"],
-            private_key=os.environ["BRAINTREE_PRIVATE_KEY"],
-        )
-    )
+from tollgate.executor.backend import make_sandbox_gateway  # noqa: E402
 
 
 def main() -> int:
