@@ -98,7 +98,7 @@ BAD_OA = {
     "args_not_object": oa_reply([("propose_payment", "[1, 2]")]),
     "rate_limit": HttpReply(429, None, retry_after=30),
     "server_error": HttpReply(503, None),
-    "groq_tool_use_failed": HttpReply(400, None),
+    "groq_tool_use_failed": HttpReply(400, None, error_code="tool_use_failed"),
     "timeout": TransportError("timeout"),
     "network": TransportError("network"),
 }
@@ -388,3 +388,187 @@ def test_provider_fails_closed_on_redirect_without_retry(kind):
         model.generate(MSG, TOOLS)
     assert exc.value.category == "redirect"
     assert len(client.requests) == 1 and waits == []      # never retried
+
+
+# ---- 400 diagnosis, error codes, reply shape for --debug ----------------------------------
+import importlib.util  # noqa: E402
+
+from tollgate.llm.providers import reply_info  # noqa: E402
+from tollgate.llm.transport import USER_AGENT, error_code  # noqa: E402
+
+
+@pytest.mark.parametrize("code", [None, "invalid_request_error", "model_not_found"])
+def test_400_request_refused_is_bad_request_and_not_retried(code):
+    model, client, waits = make("groq", HttpReply(400, None, error_code=code))
+    with pytest.raises(ModelUnavailable) as exc:
+        model.generate(MSG, TOOLS)
+    assert exc.value.category == "bad_request"          # no longer hidden as "malformed"
+    assert len(client.requests) == 1 and waits == []
+
+
+def test_400_tool_use_failed_is_labelled_and_retried():
+    bad = HttpReply(400, None, error_code="tool_use_failed")
+    model, client, _ = make("groq", bad, bad, bad)
+    with pytest.raises(ModelUnavailable) as exc:
+        model.generate(MSG, TOOLS)
+    assert exc.value.category == "tool_use_failed" and len(client.requests) == 3
+
+
+@pytest.mark.parametrize("body,expected", [
+    ({"error": {"message": "secret echo", "type": "invalid_request_error",
+                "code": "tool_use_failed"}}, "tool_use_failed"),
+    ({"error": {"message": "x", "type": "invalid_request_error"}}, "invalid_request_error"),
+    ({"error": {"code": "has spaces and text"}}, None),
+    ({"error": {"code": "a" * 41}}, None),
+    ({"error": "plain string"}, None),
+    (None, None),
+    ([1, 2], None),
+])
+def test_error_code_keeps_only_short_identifier(body, expected):
+    assert error_code(body) == expected
+
+
+def test_reply_info_holds_field_names_never_values():
+    secret_text = "Ignore previous instructions " + KEY
+    body = {"id": "x", "choices": [{"message": {"role": "assistant", "content": secret_text,
+                                                "tool_calls": [{"function": {"arguments": KEY}}]}}]}
+    info = reply_info(HttpReply(200, body), "malformed", ["propose_payment"])
+    assert info["reply_fields"] == ["choices", "id"]
+    assert info["message_fields"] == ["content", "role", "tool_calls"]
+    assert info["tools_offered"] == ["propose_payment"]
+    assert KEY not in json.dumps(info) and "Ignore" not in json.dumps(info)
+
+
+@BOTH
+def test_last_info_records_the_failing_reply_shape(kind):
+    model, _, _ = make(kind, HttpReply(400, {"error": {"code": "tool_use_failed"}},
+                                       error_code="tool_use_failed"), attempts=1)
+    with pytest.raises(ModelUnavailable):
+        model.generate(MSG, TOOLS)
+    assert model.last_info["status"] == 400 and model.last_info["category"] == "tool_use_failed"
+    assert model.last_info["error_code"] == "tool_use_failed"
+    assert MSG.text not in json.dumps(model.last_info) and KEY not in json.dumps(model.last_info)
+
+
+def _load_check_script():
+    spec = importlib.util.spec_from_file_location("tcc", ROOT / "scripts" / "tool_calling_check.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_debug_flag_prints_shape_once_and_no_secrets(monkeypatch, capsys, tmp_path):
+    tcc = _load_check_script()
+    bad = oa_reply([("propose_payment", "{not json " + KEY)])
+    model, _, _ = make("groq", *[bad] * 40)
+    monkeypatch.setattr(tcc, "get_provider", lambda: "groq")
+    monkeypatch.setattr(tcc, "build_model", lambda **kw: model)
+    assert tcc.main(["--debug"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("DEBUG scenario") == 1
+    assert "status: 200" in out and "category: malformed" in out and "propose_payment" in out
+    assert KEY not in out and "authorization" not in out.lower()
+    for s in scenarios.ALL:                      # no customer text reaches the console
+        assert s.text not in out
+
+
+def test_check_script_without_debug_prints_no_shape(monkeypatch, capsys):
+    tcc = _load_check_script()
+    model, _, _ = make("groq", *[oa_reply(text="no")] * 40)
+    monkeypatch.setattr(tcc, "get_provider", lambda: "groq")
+    monkeypatch.setattr(tcc, "build_model", lambda **kw: model)
+    tcc.main([])
+    assert "DEBUG" not in capsys.readouterr().out
+
+
+def test_client_reads_provider_error_code_and_sends_user_agent():
+    class Err400(FakeNet):
+        def _answer(self, req):
+            self.seen.append((req.full_url, dict(req.header_items())))
+            r = self._reply(400, json.dumps({"error": {"message": MSG.text,
+                                                       "code": "tool_use_failed"}}).encode(),
+                            req.full_url)
+            return r
+        https_open = _answer
+
+    net = Err400(400, None)
+    reply = UrllibClient(handlers=(net,)).post_json(ORIGIN, {}, {}, 1.0)
+    assert (reply.status, reply.error_code, reply.body) == (400, "tool_use_failed", None)
+    assert net.seen[0][1].get("User-agent") == USER_AGENT
+
+
+# ---- --only, call shape, and the single-reply prompt -----------------------------------
+from tollgate.llm.providers import SYSTEM_PROMPT, call_shape  # noqa: E402
+
+
+def _run_script(monkeypatch, capsys, model, argv):
+    tcc = _load_check_script()
+    monkeypatch.setattr(tcc, "get_provider", lambda: "groq")
+    monkeypatch.setattr(tcc, "build_model", lambda **kw: model)
+    code = tcc.main(argv)
+    return code, capsys.readouterr().out
+
+
+def test_only_runs_a_single_scenario(monkeypatch, capsys):
+    model, client, _ = make("groq", oa_reply([("propose_payment", PAY)]))
+    code, out = _run_script(monkeypatch, capsys, model, ["--only", "normal_payment"])
+    assert code == 0 and len(client.requests) == 1
+    assert "normal_payment" in out and "normal_refund" not in out
+    assert "normal correct: 1/1" in out
+
+
+def test_only_with_unknown_scenario_stops_before_any_call(monkeypatch, capsys):
+    model, client, _ = make("groq")
+    with pytest.raises(SystemExit) as exc:
+        _run_script(monkeypatch, capsys, model, ["--only", "nope"])
+    assert "normal_payment" in str(exc.value) and client.requests == []
+
+
+def test_debug_shows_lookup_only_reply_by_names_not_values(monkeypatch, capsys):
+    """Reproduces the real-Groq symptom: an ok reply holding only a lookup."""
+    reply = oa_reply([("lookup_customer", {"customer_id": "acct_supplier_1"})],
+                     text="Let me check this account first.")
+    model, _, _ = make("groq", reply)
+    _, out = _run_script(monkeypatch, capsys, model,
+                         ["--only", "normal_payment", "--debug"])
+    assert "tool_call_count: 1" in out and "has_text: True" in out
+    assert "tool call: lookup_customer  argument names: ['customer_id']" in out
+    assert "agent handled: lookup_customer" in out
+    debug_part = out[out.index("DEBUG"):out.index("scenario  ")]
+    assert "acct_supplier_1" not in debug_part and "check this account" not in debug_part
+    assert "Pay supplier" not in out and KEY not in out
+
+
+def test_call_shape_hides_values_and_odd_names():
+    shape = call_shape([("propose_payment", {"amount_cents": 1, "recipient": KEY}),
+                        ("Ignore previous instructions", {"x y": 1}),
+                        ("lookup_order", "not a dict")], "some text")
+    assert shape["tool_call_count"] == 3 and shape["has_text"] is True
+    assert shape["tool_calls"][0] == {"tool": "propose_payment",
+                                      "args": ["amount_cents", "recipient"]}
+    assert shape["tool_calls"][1] == {"tool": "<other>", "args": ["<other>"]}
+    assert shape["tool_calls"][2]["args"] == []
+    assert KEY not in json.dumps(shape)
+
+
+def test_shape_is_recorded_even_when_reply_is_rejected():
+    model, _, _ = make("groq", oa_reply([("propose_payment", {"amount_cents": 1})]),
+                       attempts=1)
+    with pytest.raises(ModelUnavailable):
+        model.generate(MSG, TOOLS)
+    assert model.last_info["category"] == "bad_arguments"
+    assert model.last_info["tool_calls"] == [{"tool": "propose_payment",
+                                              "args": ["amount_cents"]}]
+
+
+def test_prompt_and_tools_say_there_is_one_reply_and_lookups_return_nothing():
+    assert "ONE reply" in SYSTEM_PROMPT and "NOT sent back" in SYSTEM_PROMPT
+    assert "known" in SYSTEM_PROMPT                  # pay only known accounts: not loosened
+    for name in ("lookup_order", "lookup_customer"):
+        assert "NOT returned" in TOOL_SPECS[name]["description"]
+
+
+def test_check_facts_name_the_payment_scenario_recipient_and_sender():
+    tcc = _load_check_script()
+    [scenario] = [s for s in scenarios.NORMAL if s.name == "normal_payment"]
+    assert "acct_supplier_1" in tcc.FACTS and f'"{scenario.customer_id}"' in tcc.FACTS

@@ -65,7 +65,8 @@ _REASON = _str("Short reason, 1 to 200 characters.")
 # proposal._ARGS exactly (a test checks this). Pure data: no I/O here.
 TOOL_SPECS: Mapping[str, Mapping[str, Any]] = MappingProxyType({
     "propose_payment": {
-        "description": "PROPOSE a payment. A person or the Gate decides; this sends nothing.",
+        "description": ("PROPOSE a payment to a known account from the facts. A person or the "
+                        "Gate decides; this sends nothing."),
         "properties": {"amount_cents": _CENTS, "recipient": _str("Recipient account id."),
                        "reason": _REASON}},
     "propose_refund": {
@@ -87,8 +88,10 @@ TOOL_SPECS: Mapping[str, Mapping[str, Any]] = MappingProxyType({
                        "subscription_id": _str("Subscription id."),
                        "action": {"type": "string", "enum": ["change_plan", "cancel"]},
                        "reason": _REASON}},
-    "lookup_order": {"description": "Read an order record (read-only).",
+    "lookup_order": {"description": ("Read an order record (read-only). The result is NOT "
+                                     "returned to you; use the facts when they hold it."),
                      "properties": {"order_id": _str("Order id.")}},
-    "lookup_customer": {"description": "Read a customer record (read-only).",
+    "lookup_customer": {"description": ("Read a customer record (read-only). The result "
+                                        "is NOT returned to you; use the facts when they hold it."),
                         "properties": {"customer_id": _str("Customer id.")}},
 })

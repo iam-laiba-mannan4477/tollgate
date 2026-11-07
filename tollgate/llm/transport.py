@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 
 MAX_RESPONSE_BYTES = 1_000_000
+MAX_ERROR_BYTES = 20_000
+USER_AGENT = "tollgate/0.3 (sandbox)"   # some API front-ends block the default Python-urllib agent
 
 
 @dataclass(frozen=True)
@@ -23,6 +25,7 @@ class HttpReply:
     status: int
     body: Any                     # parsed JSON, or None if the body was not JSON
     retry_after: float | None = None
+    error_code: str | None = None  # provider's short error code (e.g. "tool_use_failed"), never its message
 
 
 class TransportError(Exception):
@@ -61,7 +64,8 @@ class UrllibClient:
             raise TransportError("network")
         data = json.dumps(body).encode("utf-8")
         req = urllib.request.Request(url, data=data, method="POST",
-                                     headers={"content-type": "application/json", **headers})
+                                     headers={"content-type": "application/json",
+                                              "user-agent": USER_AGENT, **headers})
         try:
             with self._opener.open(req, timeout=timeout) as resp:  # noqa: S310 (https only)
                 return HttpReply(resp.status, _parse(resp.read(MAX_RESPONSE_BYTES + 1)))
@@ -70,8 +74,9 @@ class UrllibClient:
                 exc.close()
                 raise TransportError("redirect") from None
             retry = _retry_after(exc.headers.get("retry-after") if exc.headers else None)
+            code = error_code(_parse(_read_quietly(exc)))
             exc.close()
-            return HttpReply(exc.code, None, retry)
+            return HttpReply(exc.code, None, retry, code)
         except (TimeoutError, socket.timeout):
             raise TransportError("timeout") from None
         except urllib.error.URLError as exc:
@@ -89,6 +94,28 @@ def _parse(raw: bytes) -> Any:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError):
         return None
+
+
+def _read_quietly(exc: urllib.error.HTTPError) -> bytes:
+    try:
+        return exc.read(MAX_ERROR_BYTES)
+    except Exception:
+        return b""
+
+
+def error_code(body: Any) -> str | None:
+    """Keep only a short identifier-like `error.code` (or `error.type`) from an error body.
+
+    The error *message* is dropped: it can echo the request, including customer text.
+    """
+    err = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(err, dict):
+        return None
+    for field in ("code", "type"):
+        value = err.get(field)
+        if isinstance(value, str) and 0 < len(value) <= 40 and value.replace("_", "").isalnum():
+            return value
+    return None
 
 
 def _retry_after(value: str | None) -> float | None:
