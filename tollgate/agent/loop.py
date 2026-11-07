@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
-from tollgate.agent.model import CustomerMessage, ModelAdapter, ToolCall
+from tollgate.agent.model import CustomerMessage, ModelAdapter, ModelUnavailable, ToolCall
 from tollgate.agent.proposal import Proposal, build_proposal, is_safe_id
 from tollgate.agent.tools import ALL_TOOLS, PROPOSE_TOOLS, Directory
 from tollgate.gate.audit import AuditLog
@@ -62,9 +62,16 @@ class Agent:
             calls = self._model.generate(message, sorted(ALL_TOOLS))
             if not isinstance(calls, list):
                 raise TypeError("model output must be a list")
+        except ModelUnavailable as exc:
+            return [self._record("model", f"{message.id}-0", Verdict.BLOCK, False,
+                                 f"model unavailable ({_label(exc.category)}): "
+                                 "proposed nothing, failing closed")]
         except Exception:
             return [self._record("model", f"{message.id}-0", Verdict.BLOCK, False,
                                  "model error: failing closed")]
+        if not calls:
+            return [self._record("model", None, None, False,
+                                 "model proposed nothing", decision="NONE")]
         return self._run_calls(message, calls)
 
     def _run_calls(self, message: CustomerMessage, calls: list[Any]) -> list[Outcome]:
@@ -113,7 +120,15 @@ class Agent:
                                 "submit error: failing closed")
 
     def _record(self, tool: str, pid: str | None, verdict: Verdict | None, executed: bool,
-                reason: str, amount: int | None = None, target: str | None = None) -> Outcome:
-        decision = verdict.value if verdict is not None else "LOOKUP"
-        self._audit.append(pid or "lookup", decision, f"agent {tool}: {reason}", amount, target)
+                reason: str, amount: int | None = None, target: str | None = None,
+                decision: str | None = None) -> Outcome:
+        if decision is None:
+            decision = verdict.value if verdict is not None else "LOOKUP"
+        self._audit.append(pid or decision.lower(), decision, f"agent {tool}: {reason}", amount, target)
         return Outcome(tool, pid, verdict, executed, reason)
+
+
+def _label(category: object) -> str:
+    """Keep only a short plain label, so no reply text can reach the audit log."""
+    text = category if isinstance(category, str) else ""
+    return text if text.replace("_", "").isalnum() and len(text) <= 32 else "error"

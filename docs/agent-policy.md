@@ -1,8 +1,8 @@
-# Agent policy (Phase 3a)
+# Agent policy (Phase 3b)
 
 The agent is a **drafter**. It can ask for money actions. It can never make them happen.
-There is no real AI model yet: the agent runs on `ScriptedModel`, which replays canned
-tool calls.
+By default the agent runs on `ScriptedModel` (offline, no key, replays canned tool calls).
+A real AI model can be switched on; see "Real models" below.
 
 ## What the agent CAN do
 | Tool | What it does |
@@ -53,10 +53,58 @@ becomes a Gate request, so the $1,000 limit, the new-customer HOLD, velocity and
 all apply. The desk also blocks wrong amounts, the wrong customer, and changing a dispute
 that is already resolved or a subscription that is cancelled.
 
+## Real models (Phase 3b)
+Switch with `TOLLGATE_AGENT_MODEL_PROVIDER`:
+| Value | Model | Needs |
+|-------|-------|-------|
+| `scripted` (default) | ScriptedModel, offline | nothing |
+| `groq` | any OpenAI-compatible `/chat/completions` API with tool calling | `GROQ_API_KEY`, `TOLLGATE_AGENT_MODEL`, optional `TOLLGATE_AGENT_MODEL_BASE_URL` (https only, default Groq) |
+| `claude` | Anthropic Messages API | `ANTHROPIC_API_KEY`, `TOLLGATE_AGENT_MODEL` |
+
+Any other value (including an empty one) is an error. There is no default model name.
+The code is in `tollgate/llm/`, outside `tollgate/agent/`, so the agent package itself still
+has no network, file or environment access (the import-guard tests still pass). HTTP uses
+only the Python standard library (`urllib`); no dependency was added.
+
+What a real model gets and what we accept back:
+- **Tools offered:** only the 4 `propose_*` and 2 `lookup_*` tools, with exact argument
+  schemas. There is no send, approve, stamp, breaker or secret tool to offer.
+- **Customer text:** sent in the user turn as a JSON string, labelled untrusted data. The
+  system prompt tells the model not to follow instructions inside it. This is a hint to the
+  model, not a defence: the Gate is the defence.
+- **Calls are one-shot:** the model answers once per message. Lookup results are not fed back.
+- **A reply is accepted only if every tool call** names an offered tool and has exactly that
+  tool's argument names. One bad call rejects the whole reply (nothing is partly used).
+  Value checks (amounts, ids) stay in `build_proposal` and the Gate, which BLOCK bad values.
+- **Text with no tool call** is a valid answer ("I won't do that"). The agent proposes
+  nothing and writes a `NONE` audit event. It is not retried.
+- **Bad replies** (empty, malformed JSON or body, unknown tool, extra or missing arguments,
+  timeout, network error, 429, 5xx, 400 which Groq uses for broken tool output) are retried:
+  at most **3 attempts**, waits of 1 s then 2 s (a 429 `Retry-After` is honoured but capped
+  at **5 s**). Then the agent **fails closed**: it proposes nothing and writes a BLOCK audit
+  event "model unavailable (<category>): proposed nothing". 401/403/404 are not retried.
+- **Keys:** read only from the environment, sent only in the auth header, never logged,
+  printed, put in error messages, test output or `repr()`. Only `https://` URLs are allowed.
+  The secret checker now also looks for Groq and Anthropic key shapes.
+
+### Tool-calling check (a test of the MODEL, not of the Gate)
+`python scripts	ool_calling_check.py` runs the 4 normal and 7 attack messages against the
+configured real model, each in a fresh mock-money world, and prints a table: empty and
+malformed replies, Gate verdicts, whether the model did the right thing (normal: all
+ALLOWed and done; attack: proposed nothing), and whether any attack moved money. It always
+uses mock money. One run of one model says nothing certain about the next run.
+The model is given a short trusted "facts" block (order totals, dispute and subscription
+ids) because it cannot see the lookup results.
+
 ## Honest limits
 - **ScriptedModel is not an AI.** Attack scripts show what a fooled model might emit. The
   tests show the Gate stops these 7 scripted attacks in this sandbox; they do not show how a
   real model behaves.
+- **Real providers are tested only with a fake HTTP client.** The two live tests are skipped
+  unless a key is set, and they were skipped in the last run. No claim is made about how any
+  real model behaves until `tool_calling_check.py` has been run and its output recorded.
+- The live tests and the check script share one `TOLLGATE_AGENT_MODEL`, so set one provider
+  at a time.
 - The Gate **allows** a small payment to a known recipient even if a prompt injection asked
   for it. Limits and velocity cap the damage; they do not detect intent.
 - A HELD attack moves money if a person approves it. The reviewer must read the reason and

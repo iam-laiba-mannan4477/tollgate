@@ -42,6 +42,9 @@ Goal: a real, tested, sellable product. Quality over features. Be honest about l
 - `python scripts\check_secrets.py` is clean.
 - Docs updated if behavior changed (README or docs/).
 - Short commit message that says what and why.
+- At the end of every phase, update the "What works now" section of README.md in plain
+  English: only things that really ran and passed, with exact test counts and what each
+  part does. Claim nothing untested. Mark simulated parts SIMULATED.
 
 ## Working style
 - Small steps. Run the tests after each step. Explain commands in beginner terms.

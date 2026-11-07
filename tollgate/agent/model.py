@@ -30,6 +30,18 @@ class ToolCall:
     args: Mapping[str, Any] = field(default_factory=dict)
 
 
+class ModelUnavailable(Exception):
+    """A model gave no usable reply after bounded retries. The agent proposes nothing.
+
+    `category` is a fixed short label (for example "timeout" or "malformed").
+    It never holds reply text, keys or headers.
+    """
+
+    def __init__(self, category: str) -> None:
+        super().__init__(category)
+        self.category = category
+
+
 class ModelAdapter(Protocol):
     def generate(self, message: CustomerMessage, tools: Sequence[str]) -> list[ToolCall]: ...
 

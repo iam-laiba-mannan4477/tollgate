@@ -23,10 +23,10 @@ Mode is set by `TOLLGATE_MODE`:
 Smoke test (sandbox keys required): `.venv\Scripts\python.exe scripts\smoke_test.py`
 prints `client token OK` on success.
 
-## What works now (after Phase 3a)
+## What works now (after Phase 3b)
 
-Last full run, mock mode, no network: **194 passed, 1 skipped**. The skipped test makes a
-real Braintree sandbox call and runs only when sandbox keys are set.
+Last full run, mock mode, no network: **254 passed, 3 skipped**. The skipped tests make a
+real call (one Braintree sandbox, one Groq, one Claude) and run only when those keys are set.
 
 | Part | What it does | Tests |
 |------|--------------|-------|
@@ -38,9 +38,10 @@ real Braintree sandbox call and runs only when sandbox keys are set.
 | Mode switch | `mock` or `sandbox` only; anything else is an error. | 7 |
 | Import guard | Only the backend file may use Braintree; the agent never touches the executor. | 3 |
 | Agent (scripted) | Can only propose. 4 normal scenarios run; 7 scripted attacks all end BLOCK or HOLD with no money moved. | 70 |
+| Real model providers | Optional Groq (any OpenAI-compatible API) or Claude model behind the agent, offered only propose/lookup tools. Bad replies, timeouts and 429s are retried 3 times, then the agent proposes nothing. Tested with a fake HTTP client only; no real model was called in this run. | 60 (+2 skipped live) |
 | Disputes and subscriptions | **SIMULATED** in memory, no Braintree data, but they go through the same Gate rules. | included in the 70 |
 
-Limits: the agent uses a scripted model, not a real AI. Results apply to this sandbox and
+Limits: by default the agent uses a scripted model, not a real AI; real-model behaviour is untested until `scripts	ool_calling_check.py` is run. Results apply to this sandbox and
 these tests only. Details: [docs/agent-policy.md](docs/agent-policy.md),
 [docs/executor.md](docs/executor.md), [docs/gate.md](docs/gate.md).
 

@@ -5,6 +5,9 @@ import re, subprocess, sys
 PATTERNS = [
     re.compile(r"BRAINTREE_(PRIVATE|PUBLIC)_KEY\s*=\s*[A-Za-z0-9]{16,}"),
     re.compile(r"BRAINTREE_MERCHANT_ID\s*=\s*[A-Za-z0-9]{12,}"),
+    re.compile(r"gsk_[A-Za-z0-9]{20,}"),                 # Groq key shape
+    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),          # Anthropic key shape
+    re.compile(r"(GROQ|ANTHROPIC)_API_KEY\s*=\s*\S{8,}"),
     re.compile(r"-----BEGIN (RSA |EC )?PRIVATE KEY-----"),
     re.compile(r"(?i)(api[_-]?key|secret|token)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{24,}"),
 ]
