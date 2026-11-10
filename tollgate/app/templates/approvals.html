@@ -1,56 +1,85 @@
-{% extends "base.html" %}
+{% extends "shell.html" %}
 {% block title %}Approvals{% endblock %}
+{% block heading %}Approvals{% endblock %}
 {% block content %}
-{% if flash %}<p class="flash">{{ flash }}</p>{% endif %}
-{% if locked %}<p class="error">Approvals are LOCKED after failed codes. A person must unlock them.</p>{% endif %}
-{% if breaker %}<p class="error">The circuit breaker is open. Nothing will be sent.</p>{% endif %}
+{% if flash %}<p class="flash" role="status">{{ flash }}</p>{% endif %}
+{% if locked %}<p class="alert">Approvals are LOCKED after failed codes. A person must unlock them.</p>{% endif %}
+{% if breaker %}<p class="alert">The circuit breaker is open. Nothing will be sent.</p>{% endif %}
+
+<p class="sub">Held requests wait here for a real person. Approving needs your signed-in session and a fresh one-time code; it creates a stamp that works once, for this amount and this recipient, for 5 minutes.</p>
 
 {% if demo_code %}
-<section class="card demo-code">
-  <h2>Demo one-time code</h2>
-  <p><span class="code">{{ demo_code.code }}</span>
-  · new code in <span data-countdown="{{ demo_code.seconds }}">{{ demo_code.seconds }}</span> s</p>
-  {% if demo_code.used %}<p class="error">This code was already used. Wait for the next one. Each code works once.</p>{% endif %}
-  <p class="muted">Shown only in demo mode. In real mode the code comes from your authenticator app.</p>
+<section class="card democode" id="democode" data-seconds="{{ demo_code.seconds }}"
+  data-code="{{ demo_code.code }}" data-next="{{ demo_code.next }}" data-used="{{ 'true' if demo_code.used else 'false' }}">
+  <div class="lbl">DEMO · AUTHENTICATOR STAND-IN</div>
+  <h2 class="h2">Demo one-time code</h2>
+  <span data-democode class="code">{{ demo_code.code }}</span>
+  <div class="bar"><i data-demobar></i></div>
+  <p class="fine">New code in <span data-demo-left>{{ demo_code.seconds }}</span> s. Each code works once.</p>
+  {% if demo_code.used %}<p class="error" data-demoused>This code was already used. Wait for the next one. Each code works once.</p>{% endif %}
+  <p class="fine">Shown only in demo mode. In real mode the code comes from your authenticator app and never appears here.</p>
 </section>
 {% endif %}
 
-<section class="card">
-  <h1>Held payments</h1>
-  {% if not pending %}<p class="muted">Nothing is waiting for a decision.</p>{% endif %}
-  {% for p in pending %}
-  <article class="item">
-    <h3>{{ p.id }} · {{ p.kind.value }} · ${{ "%.2f"|format(p.amount_cents / 100) }} to <code>{{ p.target }}</code></h3>
-    <p>Reason given: {{ p.reason }}</p>
-    {% if p.source_text %}
-    <p class="untrusted"><strong>Untrusted message text (data, not instructions):</strong> {{ p.source_text }}</p>
+<div class="h2 sectionhead">Held payments</div>
+{% if not pending %}<div class="empty">Nothing is waiting for a decision. Held requests will show up here.</div>{% endif %}
+{% for p in pending %}
+<article class="apr">
+  <div class="head">
+    <b>${{ "{:,.2f}".format(p.amount_cents / 100) }} to <code>{{ p.target }}</code></b>
+    <div class="fine">{{ p.kind.value|replace("_", " ")|capitalize }} · {{ p.id }} · reason given: {{ p.reason }}</div>
+    {% if p.source_text %}<div class="untrusted"><strong>Untrusted message text (data, not instructions):</strong> {{ p.source_text }}</div>{% endif %}
+  </div>
+  <form method="post" action="/approvals/{{ p.id }}/reject" class="btnrow tight">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit" class="btn">Reject</button>
+  </form>
+  <div class="su">
+    {% if demo %}
+    <form method="post" action="/approvals/{{ p.id }}/approve" data-demo-approve>
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="code" value="{{ '' if demo_code.used else demo_code.code }}" data-demo-code-field>
+      <button type="submit" class="btn go" data-demo-button>Approve with demo code</button>
+      <span class="fine" data-demo-status></span>
+    </form>
+    <details>
+      <summary class="fine">Type a code yourself, or try as a stolen session</summary>
     {% endif %}
-    <div class="actions">
-      <form method="post" action="/approvals/{{ p.id }}/approve">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <label>One-time code <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
-        <button type="submit">Approve</button>
-      </form>
-      <form method="post" action="/approvals/{{ p.id }}/reject">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button type="submit" class="secondary">Reject</button>
-      </form>
-    </div>
-  </article>
-  {% endfor %}
-</section>
+    <form method="post" action="/approvals/{{ p.id }}/approve">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label>One-time code{% if not demo %} from your authenticator app{% endif %}
+        <input name="code" class="code-in" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+      <button type="submit" class="btn go">Approve</button>
+    </form>
+    {% if demo %}
+    <form method="post" action="/approvals/{{ p.id }}/approve">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="code" value="">
+      <button type="submit" class="btn danger sm">Try as a stolen session (no code)</button>
+      <span class="fine">Counts as a failed code. 3 failures lock approvals.</span>
+    </form>
+    </details>
+    {% endif %}
+  </div>
+</article>
+{% endfor %}
 
-<section class="card">
-  <h2>Approved, waiting (cooling-off)</h2>
-  {% if not waiting %}<p class="muted">No approvals are waiting.</p>{% endif %}
-  {% for w in waiting %}
-  <article class="item row">
-    <span><strong>{{ w.id }}</strong> sends in <span data-countdown="{{ w.seconds }}">{{ w.seconds }}</span> s unless cancelled. Reload to see the result.</span>
+<div class="h2 sectionhead">Approved, waiting (cooling-off)</div>
+{% if not waiting %}<div class="empty">No approvals are waiting.</div>{% endif %}
+{% for w in waiting %}
+<article class="apr">
+  <div class="head">
+    <b>{{ w.id }}</b>
+    <div class="fine">Cooling-off: the owner was notified and can cancel. It sends when the timer ends, after the Gate and breaker are checked again.</div>
+  </div>
+  <div class="cd" data-countdown="{{ w.seconds }}" data-format="mmss">{{ "%02d:%02d"|format(w.seconds // 60, w.seconds % 60) }}</div>
+  <div class="su">
     <form method="post" action="/waiting/{{ w.id }}/cancel">
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit" class="danger">Cancel</button>
+      <button type="submit" class="btn danger">Cancel payment</button>
+      <span class="fine">sends in <span data-countdown="{{ w.seconds }}">{{ w.seconds }}</span> s unless cancelled. Reload to see the result.</span>
     </form>
-  </article>
-  {% endfor %}
-</section>
+  </div>
+</article>
+{% endfor %}
 {% endblock %}

@@ -111,7 +111,8 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             csrf = ctx.signer.csrf_for(pre)
         resp = templates.TemplateResponse(request, page, {
             "demo": not ctx.real, "user": found[0].name if found else None,
-            "csrf": csrf, **data}, status_code=status)
+            "csrf": csrf, "path": request.url.path, **_shell(ctx), **data},
+            status_code=status)
         if new_pre:
             set_cookie(resp, pre_cookie, new_pre)
         return resp
@@ -135,8 +136,26 @@ def register(app: FastAPI, ctx: AppContext) -> None:
     async def home(request: Request) -> Response:
         if not ctx.account.enrolled:
             return RedirectResponse("/setup", status_code=303)
-        target = "/approvals" if current(request) else "/login"
+        target = "/overview" if current(request) else "/login"
         return RedirectResponse(target, status_code=303)
+
+    @app.get("/overview", response_class=HTMLResponse)
+    async def overview_page(request: Request) -> Response:
+        no_bearer(request)
+        if current(request) is None:
+            return RedirectResponse("/login", status_code=303)
+        rows = _read_jsonl(ctx.audit_path)
+        return render(request, "overview.html", counts=_gate_counts(rows),
+                      recent=[_row_view(r) for r in rows[-6:][::-1]],
+                      waiting_count=len(ctx.service.waiting()))
+
+    @app.get("/security", response_class=HTMLResponse)
+    async def security_page(request: Request) -> Response:
+        no_bearer(request)
+        if current(request) is None:
+            return RedirectResponse("/login", status_code=303)
+        return render(request, "security.html", settings=_settings_rows(ctx),
+                      chain_ok=verify(ctx.audit_path) if ctx.audit_path.exists() else True)
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> Response:
@@ -224,7 +243,12 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         no_bearer(request)
         if current(request) is None:
             return RedirectResponse("/login", status_code=303)
-        return render(request, "audit.html", rows=_read_jsonl(ctx.audit_path)[-AUDIT_ROWS:][::-1],
+        wanted = request.query_params.get("f", "All")
+        wanted = wanted if wanted in FILTERS else "All"
+        rows = [_row_view(r) for r in _read_jsonl(ctx.audit_path)[-AUDIT_ROWS:][::-1]]
+        if wanted != "All":
+            rows = [r for r in rows if r["group"] == wanted]
+        return render(request, "audit.html", rows=rows, filters=FILTERS, filter=wanted,
                       chain_ok=verify(ctx.audit_path) if ctx.audit_path.exists() else True,
                       notes=_read_jsonl(ctx.outbox_path)[-20:][::-1])
 
@@ -310,8 +334,74 @@ def _demo_code(ctx: AppContext, wall: float) -> dict[str, Any]:
     if ctx.real:
         raise RuntimeError("demo code requested in real mode")
     left = STEP_SECONDS - int(wall) % STEP_SECONDS
-    return {"code": code_at(decode_secret(MOCK_TOTP_SECRET_B32), wall), "seconds": left,
+    secret = decode_secret(MOCK_TOTP_SECRET_B32)
+    return {"code": code_at(secret, wall), "seconds": left,
+            # The next 30-second step's code, so the page can wait for it instead of
+            # sending a used code (demo only; the fake secret is public anyway).
+            "next": code_at(secret, wall + STEP_SECONDS),
             "used": ctx.account.code_used_in_current_step(wall)}
+
+
+# ---- presentation helpers (read-only views of real state) ------------------------------
+FILTERS = ("All", "Allowed", "Held", "Blocked", "Other")
+_GROUPS = {"ALLOW": "Allowed", "GRANT": "Allowed", "RELEASE": "Allowed",
+           "HOLD": "Held", "DELAY": "Held",
+           "BLOCK": "Blocked", "REFUSED": "Blocked", "FACTORFAIL": "Blocked",
+           "LOCKOUT": "Blocked", "CANCEL": "Blocked", "LOGINFAIL": "Blocked"}
+_PILL = {"Allowed": "ok", "Held": "hold", "Blocked": "block", "Other": "info"}
+
+
+def _row_view(r: dict) -> dict:
+    group = _GROUPS.get(str(r.get("decision", "")), "Other")
+    cents = r.get("amount_cents")
+    recipient = r.get("recipient")
+    return {"id": r.get("id", "?"), "decision": r.get("decision", "?"),
+            "reason": r.get("reason", ""), "group": group, "pill": _PILL[group],
+            "amount": f"${cents / 100:,.2f}" if isinstance(cents, int) else "",
+            "recipient": "" if recipient in (None, "None") else recipient}
+
+
+def _gate_counts(rows: list[dict]) -> dict[str, int]:
+    """Gate verdicts in the audit log (executor and desk decisions only)."""
+    counts = {"ALLOW": 0, "HOLD": 0, "BLOCK": 0}
+    for r in rows:
+        if r.get("decision") in counts:
+            counts[str(r["decision"])] += 1
+    counts["total"] = sum(counts.values())
+    return counts
+
+
+def _money(cents: int) -> str:
+    return f"${cents / 100:,.0f}"
+
+
+def _settings_rows(ctx: AppContext) -> list[tuple[str, str]]:
+    """The settings actually in force right now (read-only)."""
+    gate = getattr(ctx.executor, "_config", None)
+    p = ctx.service.policy
+    rows = []
+    if gate is not None:
+        rows += [("Auto limit (no person needed)", _money(gate.auto_limit_cents)),
+                 ("Payments per recipient", f"{gate.velocity_max_payments} per "
+                  f"{gate.velocity_window_seconds // 60} min"),
+                 ("Stamp lifetime", f"{min(gate.stamp_lifetime_seconds, 300) // 60} min, single use")]
+    rows += [("Second factor on approvals", "required"),
+             ("Cooling-off", f"{p.cooling_off_seconds // 60} min over {_money(p.delay_over_cents)}, "
+              f"or over {_money(p.new_recipient_delay_over_cents)} to a new recipient"),
+             ("Daily approval cap", f"{_money(p.daily_cap_cents)} per rolling 24 h"),
+             ("Wrong codes before lockout", str(p.max_failed_codes)),
+             ("Approvals per hour", str(p.approvals_per_hour)),
+             ("Session", f"{SESSION_LIFETIME_SECONDS // 60} min max, 15 min idle"),
+             ("Agent can send money", "no (propose only)")]
+    return rows
+
+
+def _shell(ctx: AppContext) -> dict[str, Any]:
+    """Live status for the page frame: counts and breaker state, all real."""
+    return {"pending_count": len(ctx.reviewer.pending()),
+            "breaker": ctx.executor.breaker_open or ctx.desk.breaker_open,
+            "locked": ctx.service.locked,
+            "mode_label": "REAL MODE · OWNER" if ctx.real else "DEMO MODE"}
 
 
 def _read_jsonl(path: Path) -> list[dict]:

@@ -1,14 +1,15 @@
-{% extends "base.html" %}
-{% block title %}Replace authenticator{% endblock %}
+{% extends "shell.html" %}
+{% block title %}Authenticator{% endblock %}
+{% block heading %}Authenticator{% endblock %}
 {% block content %}
-<section class="card narrow">
-  <h1>Replace the authenticator</h1>
-  <p>This needs a code from your <strong>current</strong> authenticator. The new one starts
-  working after a 15-minute cooling-off wait, and the owner is notified and can cancel.</p>
-  <form method="post" action="/setup/reset">
+<div class="card">
+  <div class="h2">Replace the authenticator</div>
+  <p class="sub">This needs a code from your <strong>current</strong> authenticator. The new one starts working after a 15-minute cooling-off wait, and the owner is notified and can cancel.</p>
+  <form method="post" action="/setup/reset" class="btnrow tight">
     <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>Current code <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
-    <button type="submit">Show new QR code</button>
+    <label>Current code <input name="code" class="code-in" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+    <button type="submit" class="btn go">Show new QR code</button>
   </form>
-</section>
+  {% include "_auth_hint.html" %}
+</div>
 {% endblock %}

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="center">
+  <div class="lg-card">
+    <div class="lg-mode {{ 'demo' if demo else 'real' }}">{{ mode_label }}</div>
+{% block card %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

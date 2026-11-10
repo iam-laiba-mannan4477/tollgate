@@ -126,7 +126,7 @@ def _assert_headers(response):
 def test_security_headers_on_every_response(tmp_path, env):
     w = Web(tmp_path, env)
     for path in ["/", "/login", "/setup", "/approvals", "/audit", "/static/style.css",
-                 "/static/countdown.js", "/no-such-page"]:
+                 "/static/app.js", "/no-such-page"]:
         _assert_headers(w.client.get(path, follow_redirects=False))
     _assert_headers(w.client.post("/login", data={}))
     _assert_headers(w.client.post("/approvals/x/approve", data={"csrf": "bad"}))

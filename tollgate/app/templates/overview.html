@@ -1,0 +1,38 @@
+{% extends "shell.html" %}
+{% block title %}Overview{% endblock %}
+{% block heading %}Overview{% endblock %}
+{% block content %}
+<div class="grid g3">
+  <div class="card pearl">
+    <span class="muted">Waiting for you · sandbox, fake money</span>
+    <div class="big">{{ pending_count }}</div>
+    <span class="muted">held request{{ "" if pending_count == 1 else "s" }} need{{ "s" if pending_count == 1 else "" }} a person{% if waiting_count %} · {{ waiting_count }} approved and cooling off{% endif %}</span>
+    <div class="btnrow"><a class="btn dark" href="/approvals">Open approvals</a></div>
+  </div>
+  <div class="card tile"><span>Requests checked by the Gate</span><b>{{ counts.total }}</b>
+    <div class="trio"><div><i class="c-ok">{{ counts.ALLOW }}</i>allowed</div><div><i class="c-hold">{{ counts.HOLD }}</i>held</div><div><i class="c-block">{{ counts.BLOCK }}</i>blocked</div></div>
+    <p class="fine">Counted from the audit log.</p></div>
+  <div class="card">
+    <div class="h2">Security score</div>
+    <div class="empty"><b>Sentinel is not enabled yet</b>No score is shown until Sentinel runs real checks.</div>
+  </div>
+</div>
+<div class="grid g2 stack-gap">
+  <div class="card">
+    <div class="h2">Recent activity<a class="btn sm" href="/audit">See all</a></div>
+    {% if recent %}
+    <ul class="list">
+      {% for r in recent %}
+      <li class="row"><div class="ico">{{ r.decision[:2] }}</div>
+        <div class="mid"><b>{{ r.id }}{% if r.recipient %} · {{ r.recipient }}{% endif %}</b><small>{{ r.reason }}</small></div>
+        <div class="amt">{{ r.amount }}<br><span class="st {{ r.pill }}">{{ r.decision }}</span></div></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty">No activity yet.</div>{% endif %}
+  </div>
+  <div class="card">
+    <div class="h2">Sentinel<a class="btn sm" href="/security">Open</a></div>
+    <div class="empty"><b>Sentinel is not enabled yet</b>It will scan settings, look for leaked keys and run attack drills. Until then, nothing here is simulated.</div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "shell.html" %}
+{% block title %}Security{% endblock %}
+{% block heading %}Security{% endblock %}
+{% block content %}
+<p class="sub">Sentinel will be the always-on watcher: it will scan settings, look for leaked keys and replay attacks against the Gate, and it may only tighten settings, never loosen them. It is not built yet, so nothing on this page is simulated.</p>
+<div class="grid g2">
+  <div class="card">
+    <div class="h2">Sentinel</div>
+    <div class="empty"><b>Sentinel is not enabled yet</b>No findings, scores or drills are shown until it runs real checks.</div>
+  </div>
+  <div class="card">
+    <div class="h2">Live status</div>
+    <ul class="list">
+      <li class="row"><div class="mid"><b>Circuit breaker</b><small>Trips on bursts or after 3 wrong codes</small></div>{% if breaker %}<span class="st block">OPEN</span>{% else %}<span class="st ok">closed</span>{% endif %}</li>
+      <li class="row"><div class="mid"><b>Approvals</b><small>Locked after 3 wrong codes in a row</small></div>{% if locked %}<span class="st block">locked</span>{% else %}<span class="st ok">open</span>{% endif %}</li>
+      <li class="row"><div class="mid"><b>Audit log hash chain</b><small>Checked when this page loaded</small></div>{% if chain_ok %}<span class="st ok">OK</span>{% else %}<span class="st block">BROKEN</span>{% endif %}</li>
+    </ul>
+  </div>
+</div>
+<div class="card stack-gap">
+  <div class="h2">Settings in force now</div>
+  <div class="tblwrap"><table class="tbl"><thead><tr><th>Setting</th><th>Now</th></tr></thead><tbody>
+  {% for name, value in settings %}<tr><td>{{ name }}</td><td class="fine">{{ value }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  <p class="fine">Read-only. Loosening any of these needs a person, a fresh code and a cooling-off wait.</p>
+</div>
+{% endblock %}

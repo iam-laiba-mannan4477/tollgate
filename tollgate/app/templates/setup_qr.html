@@ -1,23 +1,22 @@
-{% extends "base.html" %}
+{% extends "card_page.html" %}
 {% block title %}Scan the QR code{% endblock %}
-{% block content %}
-<section class="card narrow">
-  <h1>Scan with your authenticator app</h1>
-  <p class="error">This code is shown ONCE. It is not saved anywhere you can view later and never written to a log.</p>
-  <div class="qr">{{ qr }}</div>
-  <p>Can't scan? Enter this key by hand: <code class="secret">{{ secret }}</code></p>
-  {% if confirm %}
-  <form method="post" action="/setup/confirm">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label>First code from the app <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
-    <button type="submit">Confirm and finish</button>
-  </form>
-  <p class="muted">Setup must be confirmed within 10 minutes.</p>
-  {% else %}
-  <p>{{ reason }}</p>
-  <p class="muted">The new authenticator starts working after the cooling-off wait. Until
-  then, keep using the old one. The owner was notified and can cancel.</p>
-  <p><a href="/approvals">Back to approvals</a></p>
-  {% endif %}
-</section>
+{% block card %}
+<h1>Scan with your authenticator app</h1>
+<p>Open your authenticator app, add an account and scan this code.</p>
+<p class="once">This code is shown ONCE. It is not saved anywhere you can view later and never written to a log.</p>
+<div class="qr">{{ qr }}</div>
+<p class="fine">Can't scan? Enter this key by hand: <code class="secret">{{ secret }}</code></p>
+{% if confirm %}
+<form method="post" action="/setup/confirm">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>First 6-digit code from the app <input name="code" class="code-in" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+  <button type="submit" class="btn go">Confirm and finish setup</button>
+</form>
+<p class="fine">Setup must be confirmed within 10 minutes.</p>
+{% else %}
+<p>{{ reason }}</p>
+<p class="fine">The new authenticator starts working after the cooling-off wait. Until then, keep using the old one. The owner was notified and can cancel.</p>
+<div class="btnrow tight"><a class="btn" href="/approvals">Back to approvals</a></div>
+{% endif %}
+{% include "_auth_hint.html" %}
 {% endblock %}

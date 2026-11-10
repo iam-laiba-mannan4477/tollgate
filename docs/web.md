@@ -11,9 +11,12 @@ listens on `http://127.0.0.1:8000` only (there is no host option).
 | `ratelimit.py` | Login attempt limit and lockout. |
 | `security_headers.py` | Security headers on every response, and a generic 500 on any unexpected error. |
 | `routes.py` | Pages and form handlers. |
-| `templates/`, `static/` | Plain HTML (Jinja2, auto-escaped), one CSS file, one small countdown script. |
+| `templates/`, `static/` | Plain HTML (Jinja2, auto-escaped), `style.css` and `app.js`. The look follows `design/preview_*.html`, but with no inline styles or scripts (strict CSP), system fonts only, and no network calls from the page. |
 
 ## Pages
+- `/overview`: real counts only: held requests waiting, Gate verdicts from the audit log
+  (allowed, held, blocked), recent activity. Security score and Sentinel show
+  "Sentinel is not enabled yet" (no fake score).
 - `/login`: the owner logs in with name and password. The agent has no login.
 - `/setup`: real mode, first run: name, password (12+ characters) and alert destination, then
   a QR code for Google Authenticator (or any TOTP app), shown **once**. Setup finishes only
@@ -21,8 +24,16 @@ listens on `http://127.0.0.1:8000` only (there is no host option).
   that, replacing the authenticator needs the **current** code and goes through the 3c
   guarded settings change (15-minute cooling-off, owner notified, can be cancelled).
 - `/approvals`: held payments (approve with a one-time code, or reject), and approved payments
-  waiting out their cooling-off, with a countdown and a Cancel button.
-- `/audit`: the audit log (newest first, with the hash-chain check) and the owner alerts.
+  waiting out their cooling-off, with a countdown and a Cancel button. Demo mode adds an
+  **Approve with demo code** button: the page carries this 30-second step's code and the next
+  one; if this step's code was already used, `app.js` waits for the next step and then sends
+  the next code, so a normal click never sends a used code. The server checks the code exactly
+  as for a typed one. Demo also offers "Try as a stolen session (no code)", which counts as a
+  failed code. Real mode never shows a code.
+- `/audit` ("Activity"): the audit log (newest first, filter tabs, hash-chain check) and the
+  owner alerts.
+- `/security`: live breaker, lockout and hash-chain status, and the settings in force
+  (read-only). Sentinel: "not enabled yet".
 
 ## Two modes
 | | demo (default) | real |
@@ -73,6 +84,9 @@ shuts down. **Sentinel will own this schedule later.**
 ## Honest limits
 - **Not tested in a real browser.** All tests use FastAPI's test client. The live server was
   started and served pages over HTTP, but nobody clicked through it in Chrome or Firefox.
+  That includes `app.js` (countdowns, demo code box, the wait-for-a-fresh-code button) and
+  the phone-width layout: tests check the HTML and the server side, and `node --check`
+  checks the script's syntax, but no browser ran it.
 - Real mode's `Secure` / `__Host-` cookie on plain `http://127.0.0.1` depends on the browser
   treating localhost as secure. That is not tested. See the README for what to do if login
   does not stick.

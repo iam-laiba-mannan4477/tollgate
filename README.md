@@ -42,7 +42,7 @@ authenticator app) see [docs/web.md](docs/web.md). The app listens on 127.0.0.1 
 
 ## What works now (after Phase 3d)
 
-Last full run, mock mode, no network: **439 passed, 3 skipped** (442 collected). The skipped
+Last full run, mock mode, no network: **450 passed, 3 skipped** (453 collected). The skipped
 tests make a real call (one Braintree sandbox, one Groq, one Claude) and run only when those
 keys are set; all three were skipped in this run.
 
@@ -65,6 +65,7 @@ keys are set; all three were skipped in this run.
 | Demo and real modes | `TOLLGATE_AUTH_MODE` = `demo` (default: DEMO banner on every page, documented fake account, code shown on screen, fake secret only) or `real` (no default account, 12+ character password, code never shown, fake secret refused, session key required). Anything else stops startup. Security headers (frame blocking, nosniff, strict CSP with no inline scripts, no-referrer) on every response, errors included. | 24 |
 | QR setup | Real mode: QR code shown once, finished only by the first code from the app, in the same browser, within 10 minutes. Re-running it needs the current code and waits 15 minutes. The secret never appears in the audit log, outbox or Python logs. | 7 |
 | Release loop | A background loop calls `release_due()` every 5 seconds: releases due approvals, never cancelled ones, logs errors and releases nothing on error, stops on shutdown. Sentinel will own this schedule later. | 4 |
+| Web pages (look) | Overview, approvals, activity, security, login and setup pages in the approved design. DEMO banner at the top of every demo page, never in real mode. No inline scripts or styles, no external files (strict CSP kept). Demo: "Approve with demo code" waits for a fresh code instead of sending a used one. Sentinel and the security score show "Sentinel is not enabled yet" (nothing faked). The JavaScript and the phone-width layout were not run in a browser. | 11 |
 
 Limits: step-up approval **reduces** the risk of a stolen approver session; it does not
 remove it. Someone holding both the session and the authenticator can still approve, and the

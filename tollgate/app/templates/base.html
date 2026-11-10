@@ -3,31 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>{% block title %}Tollgate{% endblock %} · Tollgate</title>
 <link rel="stylesheet" href="/static/style.css">
-<script src="/static/countdown.js" defer></script>
+<script src="/static/app.js" defer></script>
 </head>
 <body>
 {% if demo %}
-<div class="demo-banner" role="alert">DEMO MODE: fake demo account, fake secret, test money only. Not for real use.</div>
+<div class="demo-banner" role="alert"><b>DEMO MODE</b><span>Fake demo account, fake secret, test money only. Not for real use.</span></div>
 {% endif %}
-<header class="top">
-  <strong class="brand">Tollgate</strong>
-  <span class="tag">Sandbox only · fake money</span>
-  {% if user %}
-  <nav>
-    <a href="/approvals">Approvals</a>
-    <a href="/audit">Audit log</a>
-    <a href="/setup">Authenticator</a>
-    <form method="post" action="/logout" class="inline">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit" class="link">Log out ({{ user }})</button>
-    </form>
-  </nav>
-  {% endif %}
-</header>
-<main>
-{% block content %}{% endblock %}
-</main>
+{% block body %}{% endblock %}
 </body>
 </html>

@@ -1,9 +1,7 @@
-{% extends "base.html" %}
+{% extends "card_page.html" %}
 {% block title %}{{ title }}{% endblock %}
-{% block content %}
-<section class="card narrow">
-  <h1>{{ title }}</h1>
-  <p>{{ message }}</p>
-  <p><a href="{{ link or '/' }}">Continue</a></p>
-</section>
+{% block card %}
+<h1>{{ title }}</h1>
+<p>{{ message }}</p>
+<div class="btnrow tight"><a class="btn go" href="{{ link or '/' }}">Continue</a></div>
 {% endblock %}
