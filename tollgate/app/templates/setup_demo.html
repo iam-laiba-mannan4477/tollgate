@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Setup{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Demo setup</h1>
+  <p>Demo mode needs no setup and nothing to scan. The demo account uses a fixed, publicly
+  known <strong>fake</strong> secret, and the approvals page shows its current code.</p>
+  <p>Real mode (<code>TOLLGATE_AUTH_MODE=real</code>) uses a QR code for your authenticator app instead.</p>
+  <p><a href="/login">Go to login</a></p>
+</section>
+{% endblock %}

@@ -28,7 +28,7 @@ session **alone** cannot approve a payment.
 | File | Purpose |
 |------|---------|
 | `totp.py` | RFC 6238 TOTP (HMAC-SHA1, 30 s, 6 digits), checked against the RFC test vectors. Accepts one step of clock drift either side. **Each code works once**: a used step, or any older step, is refused. A fixed `MOCK_TOTP_SECRET_B32` exists for mock mode only and is refused in sandbox mode. |
-| `accounts.py` | The one approver account: name, password (PBKDF2-SHA256, salted, 600,000 rounds; each hash stores its own round count so older hashes still verify), sessions (random token, only its hash kept) and the TOTP checker. Setup runs once; it cannot be re-run after enrolment. Agent names (`agent`, `ai`, `bot`, ...) cannot enrol. |
+| `accounts.py` | The one approver account: name, password (PBKDF2-SHA256, salted, 600,000 rounds; each hash stores its own round count so older hashes still verify), sessions (random token, only its hash kept; expire after 1 hour or 15 minutes idle) and the TOTP checker. Setup runs once; it cannot be re-run after enrolment. Web setup runs in two steps (`begin_enroll`, then `confirm_enroll` with the first code). Agent names (`agent`, `ai`, `bot`, ...) cannot enrol. |
 | `policy.py` | `ApprovalPolicy`: every tier and limit below is config. |
 | `service.py` | `ApprovalService`: authorize, delays, release, cancel, cap, lockout, guarded settings changes, and the single-use **grants** the executor and desk require. |
 | `outbox.py` | Owner notifications, written to an outbox **file** (no real email). |
@@ -85,9 +85,10 @@ writers and threads cannot break the hash chain (concurrency test: 8 threads, 4 
   both the session and the second-factor device (or its secret) can still approve.
 - The cooling-off only protects if the owner **sees the alert**. In sandbox the alert is a
   line in a file; a real deployment needs email or push.
-- One approver account only. Sessions do not expire on their own yet (they end on lockout,
-  password change and re-enrolment). Cancel and unlock need a named person but no code:
-  cancelling only tightens, and unlock is an operator action the Phase 3d pages must protect.
+- One approver account only. Sessions now expire (Phase 3d): 1 hour after login, or after
+  15 minutes idle; they also end on logout, lockout, password change and re-enrolment.
+  Cancel and unlock need a named person but no code: cancelling only tightens, and unlock
+  is an operator action with no web page (see [web.md](web.md)).
 - Someone who controls the process clock or the code itself can skip any delay. Python cannot
   protect against code running in the same process.
 - All of this is in memory and lost on restart (waiting approvals then never release: fail closed).

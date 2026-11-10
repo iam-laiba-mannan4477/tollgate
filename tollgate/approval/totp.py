@@ -75,6 +75,11 @@ class TotpChecker:
     def __repr__(self) -> str:
         return "TotpChecker(secret=<hidden>)"
 
+    def step_used(self, now: float) -> bool:
+        """True if the code for `now`'s step (or a later one) was already accepted."""
+        with self._lock:
+            return step_of(now) <= self._last_used_step
+
     def check(self, code: object, now: float) -> bool:
         """True once per step for a correct code. Fails closed on any odd input."""
         if not _is_code_text(code):

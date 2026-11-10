@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Set up the approver{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Set up the approver (one time)</h1>
+  <p class="muted">There is no default account. The first person to finish this becomes the
+  approver, so run this right after starting the app, on this computer.</p>
+  {% if error %}<p class="error">{{ error }}</p>{% endif %}
+  <form method="post" action="/setup/start">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>Your name <input name="name" required maxlength="64" autocomplete="username"></label>
+    <label>Password (at least 12 characters) <input name="password" type="password" minlength="12" required autocomplete="new-password"></label>
+    <label>Where alerts go (written to the outbox file) <input name="alert" required maxlength="128"></label>
+    <button type="submit">Next: show QR code</button>
+  </form>
+</section>
+{% endblock %}

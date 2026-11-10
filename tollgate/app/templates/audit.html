@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Audit log</h1>
+  {% if chain_ok %}
+  <p class="ok">Hash chain check: OK (no edited, deleted or reordered lines found).</p>
+  {% else %}
+  <p class="error">Hash chain check FAILED: the log was changed.</p>
+  {% endif %}
+  <p class="muted">Newest first, last {{ rows|length }} lines.</p>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Id</th><th>Decision</th><th>Reason</th><th>Amount</th><th>Recipient</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr><td>{{ r.id }}</td><td>{{ r.decision }}</td><td>{{ r.reason }}</td>
+        <td>{% if r.amount_cents is not none %}${{ "%.2f"|format(r.amount_cents / 100) }}{% endif %}</td>
+        <td>{{ r.recipient or "" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</section>
+<section class="card">
+  <h2>Owner alerts (outbox file, no real email)</h2>
+  {% if not notes %}<p class="muted">No alerts yet.</p>{% endif %}
+  <ul>{% for n in notes %}<li><strong>{{ n.kind }}</strong>: {{ n.text }}</li>{% endfor %}</ul>
+</section>
+{% endblock %}

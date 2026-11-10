@@ -29,9 +29,20 @@ Mode is set by `TOLLGATE_MODE`:
 Smoke test (sandbox keys required): `.venv\Scripts\python.exe scripts\smoke_test.py`
 prints `client token OK` on success.
 
-## What works now (after Phase 3c)
+## Run the web app
 
-Last full run, mock mode, no network: **364 passed, 3 skipped** (367 collected). The skipped
+```powershell
+.venv\Scripts\python.exe scripts\run_app.py
+```
+
+Open http://127.0.0.1:8000. Demo mode is the default: log in as `demo-owner` /
+`demo-password-not-secret` (a fake, documented demo account); the approvals page shows the
+current one-time code. For real mode (`TOLLGATE_AUTH_MODE=real`, QR setup, your own
+authenticator app) see [docs/web.md](docs/web.md). The app listens on 127.0.0.1 only.
+
+## What works now (after Phase 3d)
+
+Last full run, mock mode, no network: **439 passed, 3 skipped** (442 collected). The skipped
 tests make a real call (one Braintree sandbox, one Groq, one Claude) and run only when those
 keys are set; all three were skipped in this run.
 
@@ -48,14 +59,24 @@ keys are set; all three were skipped in this run.
 | Agent (scripted) | Can only propose. 4 normal scenarios run; 8 scripted attacks (new: stolen approver session) all end BLOCK or HOLD with no money moved. | 74 |
 | Real model providers | Optional Groq (any OpenAI-compatible API) or Claude model behind the agent, offered only propose/lookup tools. Bad replies are retried at most 3 times, then the agent proposes nothing. Redirects are refused so the key is never forwarded. Tested with a fake HTTP client only; no real model was called in this run. | 98 (+2 skipped live) |
 | Disputes and subscriptions | **SIMULATED** in memory, no Braintree data, but they go through the same Gate rules and the same step-up approval. | included in the 74 |
+| Web login and sessions | The owner logs in with name and password; the agent has no login. Signed HttpOnly, SameSite=Strict cookies; sessions end after 1 hour, or 15 minutes idle, and on logout. 5 failed logins in a minute (per name or IP) lock login for 15 minutes. | 18 |
+| CSRF | Every form that changes something needs a matching token; missing or wrong is refused and audited. | 10 |
+| Web attacks | A stolen session with no code cannot approve (3 tries lock approvals, trip the breaker, end the session). Any `Authorization` header, a forged or wrongly signed cookie, and the agent role are refused at approve. Untrusted text is shown escaped. No money moved in any of them. | 12 |
+| Demo and real modes | `TOLLGATE_AUTH_MODE` = `demo` (default: DEMO banner on every page, documented fake account, code shown on screen, fake secret only) or `real` (no default account, 12+ character password, code never shown, fake secret refused, session key required). Anything else stops startup. Security headers (frame blocking, nosniff, strict CSP with no inline scripts, no-referrer) on every response, errors included. | 24 |
+| QR setup | Real mode: QR code shown once, finished only by the first code from the app, in the same browser, within 10 minutes. Re-running it needs the current code and waits 15 minutes. The secret never appears in the audit log, outbox or Python logs. | 7 |
+| Release loop | A background loop calls `release_due()` every 5 seconds: releases due approvals, never cancelled ones, logs errors and releases nothing on error, stops on shutdown. Sentinel will own this schedule later. | 4 |
 
 Limits: step-up approval **reduces** the risk of a stolen approver session; it does not
 remove it. Someone holding both the session and the authenticator can still approve, and the
 15-minute wait only helps if the owner sees the alert (here a file, not email). Tested with
 the fake mock TOTP secret and fake clocks only. By default the agent uses a scripted model,
 not a real AI; real-model behaviour is untested until `scripts\tool_calling_check.py` is run.
-Results apply to this sandbox and these tests only. Details:
+The web app is tested with FastAPI's test client only: the live server was started and served
+its pages, but it has **not** been clicked through in a real browser, and real mode's secure
+cookie on plain `http://127.0.0.1` is **untested** in a browser. Real-mode QR setup was tested
+with codes computed by the tests, not with Google Authenticator. Results apply to this
+sandbox and these tests only. Details:
 [docs/gate.md](docs/gate.md), [docs/executor.md](docs/executor.md),
-[docs/agent-policy.md](docs/agent-policy.md).
+[docs/agent-policy.md](docs/agent-policy.md), [docs/web.md](docs/web.md).
 
 License: MIT.

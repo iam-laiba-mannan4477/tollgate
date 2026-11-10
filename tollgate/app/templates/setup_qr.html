@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Scan the QR code{% endblock %}
+{% block content %}
+<section class="card narrow">
+  <h1>Scan with your authenticator app</h1>
+  <p class="error">This code is shown ONCE. It is not saved anywhere you can view later and never written to a log.</p>
+  <div class="qr">{{ qr }}</div>
+  <p>Can't scan? Enter this key by hand: <code class="secret">{{ secret }}</code></p>
+  {% if confirm %}
+  <form method="post" action="/setup/confirm">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label>First code from the app <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+    <button type="submit">Confirm and finish</button>
+  </form>
+  <p class="muted">Setup must be confirmed within 10 minutes.</p>
+  {% else %}
+  <p>{{ reason }}</p>
+  <p class="muted">The new authenticator starts working after the cooling-off wait. Until
+  then, keep using the old one. The owner was notified and can cancel.</p>
+  <p><a href="/approvals">Back to approvals</a></p>
+  {% endif %}
+</section>
+{% endblock %}

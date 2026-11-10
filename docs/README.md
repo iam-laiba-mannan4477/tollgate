@@ -10,3 +10,4 @@ Architecture, threat model and judge instructions will live here.
 - [gate.md](gate.md): rules, stamps, audit log, breaker
 - [executor.md](executor.md): the only code that moves money
 - [agent-policy.md](agent-policy.md): what the agent can and cannot do, roles, simulated skills
+- [web.md](web.md): approver login, QR setup, demo and real modes, release loop

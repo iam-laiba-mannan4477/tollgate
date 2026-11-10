@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Approvals{% endblock %}
+{% block content %}
+{% if flash %}<p class="flash">{{ flash }}</p>{% endif %}
+{% if locked %}<p class="error">Approvals are LOCKED after failed codes. A person must unlock them.</p>{% endif %}
+{% if breaker %}<p class="error">The circuit breaker is open. Nothing will be sent.</p>{% endif %}
+
+{% if demo_code %}
+<section class="card demo-code">
+  <h2>Demo one-time code</h2>
+  <p><span class="code">{{ demo_code.code }}</span>
+  · new code in <span data-countdown="{{ demo_code.seconds }}">{{ demo_code.seconds }}</span> s</p>
+  {% if demo_code.used %}<p class="error">This code was already used. Wait for the next one. Each code works once.</p>{% endif %}
+  <p class="muted">Shown only in demo mode. In real mode the code comes from your authenticator app.</p>
+</section>
+{% endif %}
+
+<section class="card">
+  <h1>Held payments</h1>
+  {% if not pending %}<p class="muted">Nothing is waiting for a decision.</p>{% endif %}
+  {% for p in pending %}
+  <article class="item">
+    <h3>{{ p.id }} · {{ p.kind.value }} · ${{ "%.2f"|format(p.amount_cents / 100) }} to <code>{{ p.target }}</code></h3>
+    <p>Reason given: {{ p.reason }}</p>
+    {% if p.source_text %}
+    <p class="untrusted"><strong>Untrusted message text (data, not instructions):</strong> {{ p.source_text }}</p>
+    {% endif %}
+    <div class="actions">
+      <form method="post" action="/approvals/{{ p.id }}/approve">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>One-time code <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+        <button type="submit">Approve</button>
+      </form>
+      <form method="post" action="/approvals/{{ p.id }}/reject">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="secondary">Reject</button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <h2>Approved, waiting (cooling-off)</h2>
+  {% if not waiting %}<p class="muted">No approvals are waiting.</p>{% endif %}
+  {% for w in waiting %}
+  <article class="item row">
+    <span><strong>{{ w.id }}</strong> sends in <span data-countdown="{{ w.seconds }}">{{ w.seconds }}</span> s unless cancelled. Reload to see the result.</span>
+    <form method="post" action="/waiting/{{ w.id }}/cancel">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit" class="danger">Cancel</button>
+    </form>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}
