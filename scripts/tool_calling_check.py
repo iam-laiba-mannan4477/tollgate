@@ -1,4 +1,4 @@
-"""Tool-calling check: run the 4 normal and 7 attack scenarios against a REAL model.
+"""Tool-calling check: run the 4 normal and 8 attack scenarios against a REAL model.
 
 THIS IS A TEST OF THE MODEL, NOT OF THE GATE. The Gate is tested offline by pytest.
 Money here is mock money in memory (TOLLGATE_MODE is ignored; no Braintree call).
@@ -32,6 +32,11 @@ from tollgate.executor.backend import MockBackend  # noqa: E402
 from tollgate.executor.executor import Executor  # noqa: E402
 from tollgate.gate.models import Request, Verdict  # noqa: E402
 from tollgate.llm.factory import build_model, get_provider  # noqa: E402
+from tollgate.approval.accounts import ApproverAccount  # noqa: E402
+from tollgate.approval.service import ApprovalItem  # noqa: E402
+from tollgate.approval.setup import build_service, connect  # noqa: E402
+from tollgate.approval.totp import MOCK_TOTP_SECRET_B32, code_at, decode_secret  # noqa: E402
+from tollgate.config import Mode  # noqa: E402
 from tollgate.roles import build_roles  # noqa: E402
 from tollgate.simulated.desk import SimDispute, SimSubscription, SimulatedDesk  # noqa: E402
 
@@ -55,16 +60,29 @@ class Clock:
 def fresh_world(model, folder: Path, name: str):
     """A new executor, desk and agent per scenario, so scenarios cannot affect each other."""
     clock, audit, backend = Clock(), folder / f"{name}.jsonl", MockBackend()
-    executor = Executor(backend, audit, clock=clock)
+    # Mock money and the FAKE mock TOTP secret: this script seeds two orders itself.
+    account = ApproverAccount(Mode.MOCK, iterations=1_000)
+    account.enroll("seed-person", "seed-only-not-a-real-pw", "owner@example.test",
+                   MOCK_TOTP_SECRET_B32)
+    wall = Clock()
+    approvals = build_service(account, audit, folder / f"{name}-outbox.jsonl", clock=clock,
+                              wall_clock=wall)
+    session = account.login("seed-person", "seed-only-not-a-real-pw")
+    executor = Executor(backend, audit, clock=clock, grants=approvals.redeem)
     desk = SimulatedDesk(audit, clock=clock, disputes={"dp_1": SimDispute("cust_2", 3_000)},
                          subscriptions={"sub_1": SimSubscription("cust_3", 2_999)},
                          known_customers={"cust_2", "cust_3"})
     for rid, amount, who in (("order-1", 4_000, "cust_1"), ("seed", 100, "acct_supplier_1")):
         req = Request(id=rid, type="pay", amount_cents=amount, recipient=who,
                       via_agent=True, created_at=0.0)
-        executor.execute(req, executor.approve(req, "seed-person"))
+        wall.t += 30
+        code = code_at(decode_secret(MOCK_TOTP_SECRET_B32), wall.t)
+        grant = approvals.authorize(session, code, ApprovalItem(rid, req, True),
+                                    lambda g: None).grant
+        executor.execute(req, executor.approve(req, grant))
     clock.t += 60
-    drafter, _ = build_roles(executor, desk, clock)
+    connect(approvals, executor, desk)
+    drafter, _ = build_roles(executor, desk, clock, approvals)
     directory = Directory(orders={"order-1": {"customer": "cust_1", "total_cents": 4_000}})
     return Agent(model, drafter, directory, audit, clock=clock), backend, desk
 

@@ -5,6 +5,7 @@ opt-in) and the three sandbox keys are available (from the environment or .env).
 Keys are loaded by python-dotenv and are never printed.
 """
 import os
+import time
 
 import pytest
 from dotenv import dotenv_values
@@ -29,10 +30,19 @@ def test_real_sandbox_charge_and_refund(tmp_path, monkeypatch):
     from tollgate.executor.executor import Executor
     from tollgate.gate.models import Request
 
-    ex = Executor(BraintreeBackend(), tmp_path / "audit.jsonl")
+    from tollgate.config import Mode
+    from tests.stepup_support import TestApprover
+
+    approver = TestApprover(tmp_path, time.monotonic, mode=Mode.SANDBOX)
+    ex = Executor(BraintreeBackend(), tmp_path / "audit.jsonl", grants=approver.service.redeem)
+    approver.connect(ex)
+
+    def grant(_ex, request):
+        return approver.grant(request)
+
     charge = Request(id=f"t{os.getpid()}c", type="pay", amount_cents=100,
                      recipient="sandbox_supplier", via_agent=True, created_at=0.0)
-    res = ex.execute(charge, ex.approve(charge, "test-runner"))
+    res = ex.execute(charge, ex.approve(charge, grant(ex, charge)))
     assert res.executed, res.reason
     ref = Request(id=f"t{os.getpid()}r", type="refund", amount_cents=100,
                   recipient="sandbox_supplier", via_agent=True, created_at=0.0,

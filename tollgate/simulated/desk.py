@@ -26,7 +26,7 @@ from tollgate.gate.audit import AuditLog
 from tollgate.gate.breaker import CircuitBreaker
 from tollgate.gate.models import Decision, Request, Verdict, validate_request
 from tollgate.gate.rules import GateConfig, GateState, evaluate
-from tollgate.gate.stamps import SpendResult, StampStore
+from tollgate.gate.stamps import SpendResult, StampError, StampStore
 
 SIMULATED = True
 
@@ -64,7 +64,9 @@ class SimulatedDesk:
                  config: GateConfig | None = None,
                  disputes: dict[str, SimDispute] | None = None,
                  subscriptions: dict[str, SimSubscription] | None = None,
-                 known_customers: Iterable[str] = ()) -> None:
+                 known_customers: Iterable[str] = (),
+                 grants: Callable[[object, Request], "str | None"] | None = None) -> None:
+        self._grants = grants
         self._config = config or GateConfig()
         self._clock = clock
         self._audit = AuditLog(audit_path)
@@ -95,8 +97,21 @@ class SimulatedDesk:
         with self._lock:
             return self._decide(request, op)
 
-    def approve(self, request: Request, op: SimAction, approver: str) -> str:
-        """A person approves a HELD action and receives a one-time stamp."""
+    def knows_customer(self, customer: object) -> bool:
+        with self._lock:
+            return customer in self._known
+
+    def trip_breaker(self) -> None:
+        """Tightening: open the desk breaker (used on approval lockout)."""
+        self._breaker.trip()
+
+    def approve(self, request: Request, op: SimAction, grant: object) -> str:
+        """Turn a valid step-up grant into a one-time stamp (same rule as the executor)."""
+        if self._grants is None:
+            raise StampError("no approval service: failing closed")
+        approver = self._grants(grant, request)
+        if not approver:
+            raise StampError("approval grant rejected")
         return self.stamps.issue(request, self.preview(request, op), approver)
 
     # ---- the one path that changes simulated records -------------------------

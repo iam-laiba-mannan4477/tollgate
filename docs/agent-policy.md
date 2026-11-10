@@ -1,4 +1,4 @@
-# Agent policy (Phase 3b)
+# Agent policy (Phase 3c)
 
 The agent is a **drafter**. It can ask for money actions. It can never make them happen.
 By default the agent runs on `ScriptedModel` (offline, no key, replays canned tool calls).
@@ -37,8 +37,15 @@ A real AI model can be switched on; see "Real models" below.
 | Role | Holds | Can |
 |------|-------|-----|
 | Drafter (agent) | `DrafterHandle` | `submit` a proposal. Nothing else. |
-| Reviewer (person) | `ReviewerHandle` | List, approve or reject HELD proposals. Must give a name; names like `agent`, `ai`, `bot` are refused. |
+| Reviewer (the approver) | `ReviewerHandle` | List, approve, reject or cancel HELD proposals. **Approve needs the approver's logged-in session AND a fresh second-factor code** (Phase 3c). Reject and cancel need a name; names like `agent`, `ai`, `bot` are refused. |
 | Executor | `tollgate/executor` | The only code that moves money. |
+
+Approving (Phase 3c, details in [gate.md](gate.md)): `approve(proposal_id, session, code)`.
+A wrong or missing code, the agent role, or a forged session is refused and the proposal
+stays pending for the real approver. Under the delay tier the payment sends at once; over
+$10,000 (or over $1,000 to a new recipient) it waits 15 minutes, the owner is notified and
+can `cancel`, and `release_due()` sends it only if the breaker is closed and the Gate still
+gives the same decision. The agent package cannot import `tollgate.approval`.
 
 How this is enforced in code: the agent receives only the drafter handle (a closure with
 one method, read-only). Tests check that the `tollgate/agent` package imports only its own
@@ -79,16 +86,19 @@ What a real model gets and what we accept back:
 - **Text with no tool call** is a valid answer ("I won't do that"). The agent proposes
   nothing and writes a `NONE` audit event. It is not retried.
 - **Bad replies** (empty, malformed JSON or body, unknown tool, extra or missing arguments,
-  timeout, network error, 429, 5xx, 400 which Groq uses for broken tool output) are retried:
+  timeout, network error, 429, 5xx, and a 400 with Groq's `tool_use_failed` code) are retried:
   at most **3 attempts**, waits of 1 s then 2 s (a 429 `Retry-After` is honoured but capped
   at **5 s**). Then the agent **fails closed**: it proposes nothing and writes a BLOCK audit
-  event "model unavailable (<category>): proposed nothing". 401/403/404 are not retried.
+  event "model unavailable (<category>): proposed nothing". Not retried: 401/403/404, any
+  other 400 (`bad_request`: the request itself was refused) and any redirect (never followed,
+  so the key cannot be forwarded).
 - **Keys:** read only from the environment, sent only in the auth header, never logged,
   printed, put in error messages, test output or `repr()`. Only `https://` URLs are allowed.
   The secret checker now also looks for Groq and Anthropic key shapes.
 
 ### Tool-calling check (a test of the MODEL, not of the Gate)
-`python scripts	ool_calling_check.py` runs the 4 normal and 7 attack messages against the
+`python scripts\tool_calling_check.py [--only <scenario>] [--debug]` runs the 4 normal and
+8 attack messages against the
 configured real model, each in a fresh mock-money world, and prints a table: empty and
 malformed replies, Gate verdicts, whether the model did the right thing (normal: all
 ALLOWed and done; attack: proposed nothing), and whether any attack moved money. It always
@@ -98,7 +108,7 @@ ids) because it cannot see the lookup results.
 
 ## Honest limits
 - **ScriptedModel is not an AI.** Attack scripts show what a fooled model might emit. The
-  tests show the Gate stops these 7 scripted attacks in this sandbox; they do not show how a
+  tests show the Gate stops these 8 scripted attacks in this sandbox; they do not show how a
   real model behaves.
 - **Real providers are tested only with a fake HTTP client.** The two live tests are skipped
   unless a key is set, and they were skipped in the last run. No claim is made about how any
@@ -107,10 +117,11 @@ ids) because it cannot see the lookup results.
   at a time.
 - The Gate **allows** a small payment to a known recipient even if a prompt injection asked
   for it. Limits and velocity cap the damage; they do not detect intent.
-- A HELD attack moves money if a person approves it. The reviewer must read the reason and
-  source text.
+- A HELD attack moves money if the approver approves it with a valid code. The approver
+  must read the reason and source text. Step-up stops a stolen session without the device;
+  it cannot stop the real approver being fooled.
 - Python cannot sandbox code inside one process. The real guarantee is that the executor
   re-checks every request and HOLD needs a stamp the agent never sees.
 - Pending queue, desk records and stamps are in memory and lost on restart.
-- The audit log is shared by several writers; each has its own lock, so they must not write
-  from different threads at once (the agent loop is single-threaded today).
+- The audit log is shared by several writers. Since Phase 3c they share one lock per file,
+  so threads can write at once (tested); the agent loop itself is still single-threaded.

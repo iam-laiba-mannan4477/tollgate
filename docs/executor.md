@@ -21,7 +21,12 @@
    From then on everything is BLOCK until a person calls
    `reset_breaker(person, reason)`. Both arguments are required, and the reset is audit-logged.
 4. ALLOW goes ahead. HOLD goes ahead only with a stamp issued for this exact request id, amount
-   and recipient (single use, 5 minutes). Get one with `approve(request, approver)`.
+   and recipient (single use, 5 minutes). Get one with `approve(request, grant)`.
+   **Phase 3c:** `approve` needs a single-use **grant** from the step-up approval service
+   (`tollgate/approval`, see [gate.md](gate.md)): the approver's session plus a fresh
+   second-factor code, and for big amounts a cooling-off wait first. A person's name is no
+   longer enough. The grant is used up even if it does not match. An executor built without
+   a grant service (`grants=None`) refuses every approval (fail closed).
 5. Checks the breaker again right before sending.
 6. Writes one audit event for every attempt (success, HOLD, BLOCK, backend failure).
 7. Updates state (known recipients, velocity history, ledger) **only after a successful send**.
@@ -29,6 +34,16 @@
 Refunds name the original request id (`refund_of`). The order total and the remaining refundable
 amount come from the executor's ledger. A refund that claims a different order total, names a
 different recipient, or exceeds what remains is blocked.
+
+## Approval wiring (Phase 3c)
+```python
+approvals = build_service(account, audit_path, outbox_path, clock=clock)
+executor = Executor(backend, audit_path, clock=clock, grants=approvals.redeem)
+connect(approvals, executor, desk)       # an approval lockout trips both breakers
+```
+New read-only/tightening methods: `knows_recipient(recipient)` and `trip_breaker()` (opens the
+breaker, never closes it). The simulated desk got the same `approve(request, op, grant)`,
+`knows_customer` and `trip_breaker`.
 
 ## Honest limits
 - **Braintree has no supplier payout.** It can charge a customer and refund a charge; it cannot

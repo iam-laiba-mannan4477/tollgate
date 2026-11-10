@@ -4,9 +4,10 @@
   sends proposals with no stamp, so the executor's own Gate check decides:
   ALLOW runs, HOLD waits in the pending queue, BLOCK stops. It cannot approve,
   read stamps, reset breakers or reach the executor object.
-- REVIEWER (a named person) gets a `ReviewerHandle`: list, approve or reject
-  HELD proposals. Approving issues a one-time stamp and spends it at once; the
-  stamp never leaves this module.
+- REVIEWER (the enrolled approver) gets a `ReviewerHandle`: list, approve, reject
+  or cancel HELD proposals. Approving needs the approver's logged-in session AND a
+  fresh second-factor code (tollgate/approval). Small approvals send at once; big
+  ones wait out a cooling-off window first. Grants and stamps never leave this module.
 - EXECUTOR (`tollgate/executor`) is the only code that moves money.
 
 The agent package is not allowed to import this module, the executor, or the
@@ -23,8 +24,10 @@ from typing import Any, Callable
 
 from tollgate.agent.loop import SubmitResult
 from tollgate.agent.proposal import Proposal, ProposalKind
+from tollgate.approval.service import ApprovalItem, ApprovalService, Grant, Status
 from tollgate.executor.executor import Executor
-from tollgate.gate.models import Request, Verdict
+from tollgate.gate.models import Decision, Request, Verdict
+from tollgate.gate.stamps import StampError
 from tollgate.simulated.desk import SimAction, SimulatedDesk
 
 DRAFTER_NAMES = frozenset({"agent", "drafter", "bot", "ai", "assistant", "model"})
@@ -86,12 +89,19 @@ class DrafterHandle:
 
 
 class ReviewerHandle:
-    """What a person holds. Every action needs a named human reviewer."""
+    """What a person holds. Approving needs the approver's session AND a fresh code.
 
-    def __init__(self, executor: Executor, desk: SimulatedDesk, queue: _Queue) -> None:
+    Phase 3c: approval goes through the step-up service. Small approvals still send at
+    once after the factor passes; big ones (and big ones to new recipients) wait out a
+    cooling-off window, then `release_due` re-runs the Gate and re-checks the breaker.
+    """
+
+    def __init__(self, executor: Executor, desk: SimulatedDesk, queue: _Queue,
+                 approvals: ApprovalService) -> None:
         self._executor = executor
         self._desk = desk
         self._queue = queue
+        self._approvals = approvals
 
     @property
     def role(self) -> Role:
@@ -101,24 +111,89 @@ class ReviewerHandle:
         with self._queue.lock:
             return [item.proposal for item in self._queue.items.values()]
 
-    def approve(self, proposal_id: str, person: str) -> SubmitResult:
-        name = _require_person(person)
-        item = self._take(proposal_id)
+    def approve(self, proposal_id: str, session: object, code: object) -> SubmitResult:
+        with self._queue.lock:
+            item = self._queue.items.get(proposal_id)
         if item is None:
             return SubmitResult(Verdict.BLOCK, False, "no such pending proposal")
-        p, req = item.proposal, item.request
-        if p.kind in (ProposalKind.PAYMENT, ProposalKind.REFUND):
-            refund_of = p.ref if p.kind is ProposalKind.REFUND else None
-            stamp = self._executor.approve(req, name, refund_of)
-            res = self._executor.execute(req, stamp, refund_of)
-            return SubmitResult(res.verdict, res.executed, res.reason)
-        op = _sim_action(p)
-        out = self._desk.apply(req, op, self._desk.approve(req, op, name))
-        return SubmitResult(out.verdict, out.applied, out.reason)
+        decision = self._preview(item)
+        if decision.verdict is not Verdict.HOLD:
+            self._take(proposal_id)
+            return SubmitResult(Verdict.BLOCK, False, f"no longer held: {decision.reason}")
+        target = ApprovalItem(item.proposal.id, item.request, not self._knows(item))
+        result = self._approvals.authorize(
+            session, code, target, lambda grant: self._release(item, grant, decision.reason))
+        if result.status is Status.GRANTED and result.grant is not None:
+            self._take(proposal_id)
+            return self._send(item, result.grant)
+        if result.status is Status.DELAYED:
+            self._take(proposal_id)
+            return SubmitResult(Verdict.HOLD, False, "approved, waiting: " + result.reason)
+        if result.status is Status.BLOCKED:
+            self._take(proposal_id)
+        return SubmitResult(Verdict.BLOCK, False, result.reason)
+
+    def release_due(self) -> list[tuple[str, SubmitResult]]:
+        """Send approvals whose cooling-off is over (each re-checked first)."""
+        out = []
+        for item_id, res in self._approvals.release_due():
+            out.append((item_id, res if isinstance(res, SubmitResult) else
+                        SubmitResult(Verdict.BLOCK, False, "release blocked")))
+        return out
+
+    def cancel(self, proposal_id: str, person: str) -> bool:
+        """The owner cancels an approval during its cooling-off window."""
+        return self._approvals.cancel(proposal_id, person)
 
     def reject(self, proposal_id: str, person: str) -> bool:
         _require_person(person)
         return self._take(proposal_id) is not None
+
+    # ---- internals -----------------------------------------------------------------------
+    def _release(self, item: Pending, grant: Grant, approved_reason: str) -> SubmitResult:
+        """At release: breaker closed and the Gate must still say exactly what it said."""
+        p = item.proposal
+        if self._breaker_open(item):
+            return self._blocked_at_release(p, "circuit breaker open at release")
+        now = self._preview(item)
+        if now.verdict is not Verdict.HOLD or now.reason != approved_reason:
+            return self._blocked_at_release(p, f"changed since approval: {now.reason}")
+        return self._send(item, grant)
+
+    def _blocked_at_release(self, p: Proposal, reason: str) -> SubmitResult:
+        self._approvals.record(p.id, "BLOCK", "release: " + reason, p.amount_cents, p.target)
+        return SubmitResult(Verdict.BLOCK, False, reason)
+
+    def _send(self, item: Pending, grant: Grant) -> SubmitResult:
+        p, req = item.proposal, item.request
+        try:
+            if p.kind in (ProposalKind.PAYMENT, ProposalKind.REFUND):
+                refund_of = p.ref if p.kind is ProposalKind.REFUND else None
+                stamp = self._executor.approve(req, grant, refund_of)
+                res = self._executor.execute(req, stamp, refund_of)
+                return SubmitResult(res.verdict, res.executed, res.reason)
+            op = _sim_action(p)
+            out = self._desk.apply(req, op, self._desk.approve(req, op, grant))
+            return SubmitResult(out.verdict, out.applied, out.reason)
+        except StampError as exc:
+            return SubmitResult(Verdict.BLOCK, False, f"stamp refused: {exc}")
+
+    def _preview(self, item: Pending) -> Decision:
+        p, req = item.proposal, item.request
+        if p.kind in (ProposalKind.PAYMENT, ProposalKind.REFUND):
+            refund_of = p.ref if p.kind is ProposalKind.REFUND else None
+            return self._executor.preview(req, refund_of)
+        return self._desk.preview(req, _sim_action(p))
+
+    def _knows(self, item: Pending) -> bool:
+        if item.proposal.kind in (ProposalKind.PAYMENT, ProposalKind.REFUND):
+            return self._executor.knows_recipient(item.request.recipient)
+        return self._desk.knows_customer(item.request.recipient)
+
+    def _breaker_open(self, item: Pending) -> bool:
+        if item.proposal.kind in (ProposalKind.PAYMENT, ProposalKind.REFUND):
+            return self._executor.breaker_open
+        return self._desk.breaker_open
 
     def _take(self, proposal_id: str) -> Pending | None:
         with self._queue.lock:
@@ -133,8 +208,8 @@ def _require_person(person: Any) -> str:
     return person.strip()
 
 
-def build_roles(executor: Executor, desk: SimulatedDesk,
-                clock: Callable[[], float]) -> tuple[DrafterHandle, ReviewerHandle]:
+def build_roles(executor: Executor, desk: SimulatedDesk, clock: Callable[[], float],
+                approvals: ApprovalService) -> tuple[DrafterHandle, ReviewerHandle]:
     """Wire the roles. The drafter gets a closure, not the executor."""
     queue = _Queue()
 
@@ -152,4 +227,4 @@ def build_roles(executor: Executor, desk: SimulatedDesk,
                 queue.items[p.id] = Pending(p, req)
         return result
 
-    return DrafterHandle(submit), ReviewerHandle(executor, desk, queue)
+    return DrafterHandle(submit), ReviewerHandle(executor, desk, queue, approvals)

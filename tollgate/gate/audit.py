@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import threading
 import time
@@ -29,6 +30,17 @@ _SECRET_LIKE = re.compile(
     r"|\b\d{13,19}\b"                 # card-number-like digit runs
 )
 REDACTED = "[redacted]"
+
+# One lock per audit FILE, shared by every AuditLog writing to it (executor, desk, agent,
+# approvals). Separate locks per writer could interleave two appends and break the chain.
+_FILE_LOCKS: dict[str, threading.Lock] = {}
+_FILE_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    key = os.path.normcase(os.path.realpath(path))
+    with _FILE_LOCKS_GUARD:
+        return _FILE_LOCKS.setdefault(key, threading.Lock())
 
 
 def _clean(text: object, max_len: int) -> str:
@@ -45,7 +57,7 @@ class AuditLog:
     def __init__(self, path: str | Path, clock: Callable[[], float] = time.time) -> None:
         self._path = Path(path)
         self._clock = clock
-        self._lock = threading.Lock()
+        self._lock = _lock_for(self._path)
 
     def append(self, event_id: str, decision: str, reason: str,
                amount_cents: object, recipient: object) -> str:

@@ -14,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import load_dotenv  # noqa: E402
 
+from tollgate.approval.accounts import ApproverAccount  # noqa: E402
+from tollgate.approval.service import ApprovalItem, Status  # noqa: E402
+from tollgate.approval.setup import build_service, connect  # noqa: E402
+from tollgate.approval.totp import code_at, decode_secret  # noqa: E402
 from tollgate.config import Mode, get_mode  # noqa: E402
 from tollgate.executor.backend import BackendError, BraintreeBackend  # noqa: E402
 from tollgate.executor.executor import Executor  # noqa: E402
@@ -32,12 +36,26 @@ def main() -> int:
         print(f"error: {exc}")
         return 1
     audit_path = Path(tempfile.mkdtemp()) / "demo_audit.jsonl"
-    ex = Executor(backend, audit_path)
+    # Demo approver: a fresh random TOTP secret held only in memory. This script plays
+    # the authenticator app too, so it can compute the code. The secret is never printed.
+    account = ApproverAccount(Mode.SANDBOX)
+    demo_password = "demo-" + str(time.time_ns())          # throwaway, never printed
+    secret = decode_secret(account.enroll("demo-operator", demo_password,
+                                          "owner@example.test"))
+    approvals = build_service(account, audit_path, audit_path.with_name("outbox.jsonl"))
+    ex = Executor(backend, audit_path, grants=approvals.redeem)
+    connect(approvals, ex)
+    session = account.login("demo-operator", demo_password)
     tag = str(int(time.time()))
     charge = Request(id=f"demo-{tag}-c", type="pay", amount_cents=100,
                      recipient="sandbox_supplier", via_agent=True, created_at=time.time())
     print("Gate says:", ex.preview(charge).verdict.value, "(new recipient -> needs a person)")
-    stamp = ex.approve(charge, approver="demo-operator")  # stamp itself is never printed
+    step_up = approvals.authorize(session, code_at(secret, time.time()),
+                                  ApprovalItem(charge.id, charge, True), lambda g: None)
+    print("step-up approval:", step_up.status.value)
+    if step_up.status is not Status.GRANTED:
+        return 1
+    stamp = ex.approve(charge, step_up.grant)  # stamp itself is never printed
     res = ex.execute(charge, stamp)
     print("charge:", "OK" if res.executed else "FAILED", res.transaction_id or res.reason)
     if not res.executed:

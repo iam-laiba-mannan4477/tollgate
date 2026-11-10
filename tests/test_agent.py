@@ -18,6 +18,7 @@ from tollgate.gate.audit import verify
 from tollgate.gate.models import MAX_AMOUNT_CENTS, Request, Verdict
 from tollgate.roles import DrafterHandle, RoleError, build_roles
 from tollgate.simulated.desk import SimDispute, SimSubscription, SimulatedDesk
+from tests.stepup_support import TestApprover
 
 ROOT = Path(__file__).resolve().parent.parent
 AGENT_DIR = ROOT / "tollgate" / "agent"
@@ -38,16 +39,21 @@ class World:
         self.clock = FakeClock()
         self.audit = tmp_path / "audit.jsonl"
         self.backend = MockBackend()
-        self.executor = Executor(self.backend, self.audit, clock=self.clock)
+        # Real default approval policy; approvals share the one audit file.
+        self.approver = TestApprover(tmp_path, self.clock, audit_name="audit.jsonl")
+        grants = self.approver.service.redeem
+        self.executor = Executor(self.backend, self.audit, clock=self.clock, grants=grants)
         self.desk = SimulatedDesk(
             self.audit, clock=self.clock,
             disputes={"dp_1": SimDispute("cust_2", 3_000)},
             subscriptions={"sub_1": SimSubscription("cust_3", 2_999)},
-            known_customers={"cust_2", "cust_3"})
+            known_customers={"cust_2", "cust_3"}, grants=grants)
+        self.approver.connect(self.executor, self.desk)
         self._seed("order-1", 4_000, "cust_1")
         self._seed("seed-supplier", 100, "acct_supplier_1")
         self.clock.t += 60
-        self.drafter, self.reviewer = build_roles(self.executor, self.desk, self.clock)
+        self.drafter, self.reviewer = build_roles(self.executor, self.desk, self.clock,
+                                                  self.approver.service)
         directory = Directory(orders={"order-1": {"customer": "cust_1", "total_cents": 4_000}})
         self.agent = Agent(ScriptedModel(scenarios.SCRIPTS), self.drafter, directory,
                            self.audit, clock=self.clock)
@@ -56,7 +62,7 @@ class World:
     def _seed(self, rid: str, amount: int, recipient: str) -> None:
         req = Request(id=rid, type="pay", amount_cents=amount, recipient=recipient,
                       via_agent=True, created_at=0.0)
-        assert self.executor.execute(req, self.executor.approve(req, "seed-person")).executed
+        assert self.executor.execute(req, self.executor.approve(req, self.approver.grant(req))).executed
 
     def run(self, scenario: scenarios.Scenario):
         msg = CustomerMessage(f"msg-{scenario.name}", scenario.customer_id, scenario.text,
@@ -225,11 +231,21 @@ def test_errors_fail_closed(tmp_path):
 
 # ---- roles ---------------------------------------------------------------------------------
 @pytest.mark.parametrize("person", ["", "   ", None, "agent", "Drafter", " AI "])
-def test_reviewer_requires_named_human(world, person):
+def test_reviewer_reject_requires_named_human(world, person):
     world.run(scenarios.ATTACKS[1])                      # injection_payment -> HOLD
     [pending] = world.reviewer.pending()
     with pytest.raises(RoleError):
-        world.reviewer.approve(pending.id, person)
+        world.reviewer.reject(pending.id, person)
+    assert world.backend.balance_cents == world.seed_balance
+
+
+@pytest.mark.parametrize("session", [None, "alice", object()])
+def test_reviewer_approve_needs_an_approver_session(world, session):
+    world.run(scenarios.ATTACKS[1])
+    [pending] = world.reviewer.pending()
+    res = world.reviewer.approve(pending.id, session, world.approver.code())
+    assert res.verdict is Verdict.BLOCK and not res.executed
+    assert world.reviewer.pending() == [pending]         # still waiting for a real approver
     assert world.backend.balance_cents == world.seed_balance
 
 
@@ -238,9 +254,10 @@ def test_reviewer_approval_moves_held_payment_once(world):
     model = ScriptedModel({"x": [ToolCall("propose_payment", args_payment(recipient="acct_new"))]})
     Agent(model, world.drafter, Directory(), world.audit, clock=world.clock).handle(msg)
     [p] = world.reviewer.pending()
-    res = world.reviewer.approve(p.id, "alice")
+    a = world.approver
+    res = world.reviewer.approve(p.id, a.session, a.code())
     assert res.executed and world.backend.balance_cents == world.seed_balance + 500
-    assert world.reviewer.approve(p.id, "alice").verdict is Verdict.BLOCK   # gone
+    assert world.reviewer.approve(p.id, a.session, a.code()).verdict is Verdict.BLOCK  # gone
     assert world.reviewer.pending() == []
 
 
@@ -283,6 +300,7 @@ EXPECTED_ATTACK = {
     "huge_refund": [Verdict.BLOCK, Verdict.BLOCK],
     "stolen_key_direct_call": [Verdict.BLOCK] * 4,
     "dispute_inflated": [Verdict.BLOCK],
+    "stolen_approver_session": [Verdict.HOLD],
 }
 
 
@@ -310,7 +328,8 @@ def test_simulated_skills_go_through_the_gate(world):
     assert out.verdict is Verdict.HOLD and "over auto limit" in out.reason
     assert out.reason.startswith("SIMULATED")
     assert world.desk.subscription("sub_1") == (2_999, "active")
-    assert world.reviewer.approve(out.proposal_id, "alice").executed
+    a = world.approver
+    assert world.reviewer.approve(out.proposal_id, a.session, a.code()).executed
     assert world.desk.subscription("sub_1") == (150_000, "active")
 
 

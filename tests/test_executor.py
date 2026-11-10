@@ -6,6 +6,7 @@ from tollgate.executor.backend import BackendResult, MockBackend
 from tollgate.executor.executor import Executor
 from tollgate.gate.audit import verify
 from tollgate.gate.models import Request, Verdict
+from tests.stepup_support import LOOSE_RATE, TestApprover
 
 
 class FakeClock:
@@ -31,13 +32,22 @@ def env(tmp_path):
     clock = FakeClock()
     backend = MockBackend()
     path = tmp_path / "audit.jsonl"
-    return Executor(backend, path, clock=clock), backend, clock, path
+    approver = TestApprover(tmp_path, clock, LOOSE_RATE)
+    ex = Executor(backend, path, clock=clock, grants=approver.service.redeem)
+    approver.connect(ex)
+    ex.test_approver = approver           # test-only handle: the person with the device
+    return ex, backend, clock, path
+
+
+def grant(ex, request):
+    """A real step-up grant: approver session + fresh second-factor code."""
+    return ex.test_approver.grant(request)
 
 
 def known(ex, recipient="acct_a", rid="seed"):
     """Make a recipient known via one approved (HELD -> stamped) payment."""
     r = pay(rid, 100, recipient)
-    assert ex.execute(r, ex.approve(r, "alice")).executed
+    assert ex.execute(r, ex.approve(r, grant(ex, r))).executed
 
 
 def audit_lines(path):
@@ -54,7 +64,7 @@ def test_held_without_stamp_refused(env):
 def test_direct_call_blocked_even_with_stamp(env):
     ex, backend, _, _ = env
     r = pay("r1")
-    stamp = ex.approve(r, "alice")
+    stamp = ex.approve(r, grant(ex, r))
     direct = Request(id="r1", type="pay", amount_cents=500, recipient="acct_a",
                      via_agent=False, created_at=0.0)
     assert ex.execute(direct, stamp).verdict is Verdict.BLOCK
@@ -63,27 +73,27 @@ def test_direct_call_blocked_even_with_stamp(env):
 
 def test_wrong_amount_refused(env):
     ex, backend, _, _ = env
-    stamp = ex.approve(pay("r1", 500), "alice")
+    stamp = ex.approve(pay("r1", 500), grant(ex, pay("r1", 500)))
     res = ex.execute(pay("r1", 501), stamp)
     assert not res.executed and "MISMATCH" in res.reason and backend.balance_cents == 0
 
 
 def test_wrong_recipient_refused(env):
     ex, _, _, _ = env
-    stamp = ex.approve(pay("r1"), "alice")
+    stamp = ex.approve(pay("r1"), grant(ex, pay("r1")))
     assert "MISMATCH" in ex.execute(pay("r1", recipient="acct_evil"), stamp).reason
 
 
 def test_stamp_for_other_request_id_refused(env):
     ex, _, _, _ = env
-    stamp = ex.approve(pay("r1"), "alice")
+    stamp = ex.approve(pay("r1"), grant(ex, pay("r1")))
     assert "MISMATCH" in ex.execute(pay("r2"), stamp).reason
 
 
 def test_used_stamp_refused(env):
     ex, _, _, _ = env
     r = pay("r1")
-    stamp = ex.approve(r, "alice")
+    stamp = ex.approve(r, grant(ex, r))
     assert ex.execute(r, stamp).executed
     second = pay("r1b", 150_000)                # HELD (over limit), so the stamp matters
     res = ex.execute(second, stamp)
@@ -93,7 +103,7 @@ def test_used_stamp_refused(env):
 def test_expired_stamp_refused(env):
     ex, backend, clock, _ = env
     r = pay("r1")
-    stamp = ex.approve(r, "alice")
+    stamp = ex.approve(r, grant(ex, r))
     clock.t += 300
     res = ex.execute(r, stamp)
     assert not res.executed and "EXPIRED" in res.reason and backend.balance_cents == 0
@@ -118,9 +128,12 @@ def test_backend_failure_fails_closed_and_consumes_id(env, tmp_path):
         def charge(self, amount_cents, reference):
             return BackendResult(False, None, "timeout")
 
-    ex = Executor(Failing(), tmp_path / "f.jsonl", clock=FakeClock())
+    clock = FakeClock()
+    approver = TestApprover(tmp_path, clock, LOOSE_RATE)
+    ex = Executor(Failing(), tmp_path / "f.jsonl", clock=clock, grants=approver.service.redeem)
+    ex.test_approver = approver
     r = pay("r1")
-    res = ex.execute(r, ex.approve(r, "alice"))
+    res = ex.execute(r, ex.approve(r, grant(ex, r)))
     assert not res.executed and res.verdict is Verdict.BLOCK
     assert "duplicate" in ex.execute(r).reason        # no retry under same id
     assert ex.preview(pay("r2")).verdict is Verdict.HOLD  # recipient still unknown
@@ -131,9 +144,12 @@ def test_backend_exception_fails_closed(tmp_path):
         def charge(self, amount_cents, reference):
             raise RuntimeError("boom")
 
-    ex = Executor(Boom(), tmp_path / "b.jsonl", clock=FakeClock())
+    clock = FakeClock()
+    approver = TestApprover(tmp_path, clock, LOOSE_RATE)
+    ex = Executor(Boom(), tmp_path / "b.jsonl", clock=clock, grants=approver.service.redeem)
+    ex.test_approver = approver
     r = pay("r1")
-    res = ex.execute(r, ex.approve(r, "alice"))
+    res = ex.execute(r, ex.approve(r, grant(ex, r)))
     assert not res.executed and res.verdict is Verdict.BLOCK
 
 
@@ -190,7 +206,7 @@ def test_e2e_mock_allowed_held_and_refunds(env):
     # held then approved: new recipient
     first = pay("o1", 2_000)
     assert ex.execute(first).verdict is Verdict.HOLD
-    res = ex.execute(first, ex.approve(first, "alice"))
+    res = ex.execute(first, ex.approve(first, grant(ex, first)))
     assert res.executed and res.transaction_id.startswith("mock_")
     # allowed: known recipient, under limit
     clock.t += 700
@@ -199,7 +215,7 @@ def test_e2e_mock_allowed_held_and_refunds(env):
     clock.t += 700
     big = pay("o3", 150_000)
     assert ex.execute(big).verdict is Verdict.HOLD
-    assert ex.execute(big, ex.approve(big, "alice")).executed
+    assert ex.execute(big, ex.approve(big, grant(ex, big))).executed
     # refund over the order total is blocked
     clock.t += 700
     over = ex.execute(refund("f1", 2_001, 2_000), refund_of="o1")
@@ -223,6 +239,6 @@ def test_e2e_mock_allowed_held_and_refunds(env):
 def test_no_stamp_ever_in_audit(env):
     ex, _, _, path = env
     r = pay("r1")
-    stamp = ex.approve(r, "alice")
+    stamp = ex.approve(r, grant(ex, r))
     ex.execute(pay("r1", 999), stamp)
     assert stamp not in path.read_text(encoding="utf-8")

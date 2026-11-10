@@ -14,6 +14,11 @@ Refunds: the caller names the original request (`refund_of`). The order total
 and remaining refundable amount come from the executor's own ledger, not from
 the caller. A refund that claims a different order total is blocked.
 
+Approvals (Phase 3c): `approve` issues a stamp only for a single-use GRANT from the
+step-up approval service (approver session + fresh second-factor code, plus any
+cooling-off delay). With no service wired in, `approve` always refuses (fail closed).
+A person's name alone is no longer enough.
+
 One lock serialises execute() so id checks, breaker checks and state updates
 cannot interleave. That limits throughput; correctness first.
 """
@@ -32,7 +37,10 @@ from tollgate.gate.audit import AuditLog
 from tollgate.gate.breaker import CircuitBreaker
 from tollgate.gate.models import Decision, Request, RequestType, Verdict, validate_request
 from tollgate.gate.rules import GateConfig, GateState, evaluate
-from tollgate.gate.stamps import SpendResult, StampStore
+from tollgate.gate.stamps import SpendResult, StampError, StampStore
+
+# redeem(grant, request) -> approver name if the grant is valid for exactly this request
+GrantRedeemer = Callable[[object, Request], "str | None"]
 
 
 @dataclass(frozen=True)
@@ -54,8 +62,10 @@ class _LedgerEntry:
 class Executor:
     def __init__(self, backend: Backend, audit_path: str | Path,
                  config: GateConfig | None = None,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic,
+                 grants: GrantRedeemer | None = None) -> None:
         self._backend = backend
+        self._grants = grants
         self._config = config or GateConfig()
         self._clock = clock
         self._audit = AuditLog(audit_path)
@@ -84,8 +94,24 @@ class Executor:
             except Exception:
                 return Decision(Verdict.BLOCK, "internal error: failing closed")
 
-    def approve(self, request: Request, approver: str, refund_of: str | None = None) -> str:
-        """A person approves a HELD request and receives a one-time stamp."""
+    def knows_recipient(self, recipient: object) -> bool:
+        with self._lock:
+            return recipient in self._known_recipients
+
+    def trip_breaker(self) -> None:
+        """Tightening: open the breaker (used on approval lockout). Never closes it."""
+        self._breaker.trip()
+
+    def approve(self, request: Request, grant: object, refund_of: str | None = None) -> str:
+        """Turn a valid step-up grant into a one-time stamp for this exact HELD request.
+
+        The grant is used up even if it does not match. No grant service -> refuse.
+        """
+        if self._grants is None:
+            raise StampError("no approval service: failing closed")
+        approver = self._grants(grant, request)
+        if not approver:
+            raise StampError("approval grant rejected")
         return self.stamps.issue(request, self.preview(request, refund_of), approver)
 
     # ---- the one path that moves money ------------------------------------
