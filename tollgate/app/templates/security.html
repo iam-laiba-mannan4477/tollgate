@@ -2,11 +2,11 @@
 {% block title %}Security{% endblock %}
 {% block heading %}Security{% endblock %}
 {% block content %}
-<p class="sub">Sentinel will be the always-on watcher: it will scan settings, look for leaked keys and replay attacks against the Gate, and it may only tighten settings, never loosen them. It is not built yet, so nothing on this page is simulated.</p>
+<p class="sub">Sentinel watches settings, looks for leaked keys and replays attacks against the Gate. It may only tighten settings, never loosen them.</p>
 <div class="grid g2">
   <div class="card">
-    <div class="h2">Sentinel</div>
-    <div class="empty"><b>Sentinel is not enabled yet</b>No findings, scores or drills are shown until it runs real checks.</div>
+    <div class="h2">Sentinel<a class="btn sm" href="/sentinel">Open</a></div>
+    {% include "_score.html" %}
   </div>
   <div class="card">
     <div class="h2">Live status</div>

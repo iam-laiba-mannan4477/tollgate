@@ -25,6 +25,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markupsafe import Markup
 from starlette.concurrency import run_in_threadpool
 
+from tollgate.app.drills import DRILL_EVERY_SECONDS, DRILLS, run_drill
 from tollgate.app.main import AppContext
 from tollgate.app.sessions import new_pre_token
 from tollgate.approval.accounts import SESSION_LIFETIME_SECONDS, AccountError, Session
@@ -34,6 +35,8 @@ from tollgate.gate.audit import verify
 HERE = Path(__file__).resolve().parent
 MAX_FIELD = 200
 AUDIT_ROWS = 200
+SCAN_LOG_ROWS = 50
+SCAN_EVERY_SECONDS = 30           # "Scan now": one per 30 s per app (approved)
 
 
 class Refusal(Exception):
@@ -128,8 +131,15 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         return refusal_page(request, err)
 
     def back_to_approvals(token: str, message: str) -> Response:
+        return back_to("/approvals", token, message)
+
+    def back_to(path: str, token: str, message: str) -> Response:
         ctx.flash[token] = message[:300]
-        return RedirectResponse("/approvals", status_code=303)
+        return RedirectResponse(path, status_code=303)
+
+    def logged_in(request: Request) -> tuple[Session, str] | None:
+        no_bearer(request)
+        return current(request)
 
     # ---- pages ---------------------------------------------------------------------------
     @app.get("/")
@@ -146,6 +156,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             return RedirectResponse("/login", status_code=303)
         rows = _read_jsonl(ctx.audit_path)
         return render(request, "overview.html", counts=_gate_counts(rows),
+                      sentinel=_sentinel_view(ctx),
                       recent=[_row_view(r) for r in rows[-6:][::-1]],
                       waiting_count=len(ctx.service.waiting()))
 
@@ -155,6 +166,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         if current(request) is None:
             return RedirectResponse("/login", status_code=303)
         return render(request, "security.html", settings=_settings_rows(ctx),
+                      sentinel=_sentinel_view(ctx),
                       chain_ok=verify(ctx.audit_path) if ctx.audit_path.exists() else True)
 
     @app.get("/login", response_class=HTMLResponse)
@@ -251,6 +263,75 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         return render(request, "audit.html", rows=rows, filters=FILTERS, filter=wanted,
                       chain_ok=verify(ctx.audit_path) if ctx.audit_path.exists() else True,
                       notes=_read_jsonl(ctx.outbox_path)[-20:][::-1])
+
+    # ---- Sentinel page ---------------------------------------------------------------------
+    @app.get("/sentinel", response_class=HTMLResponse)
+    async def sentinel_page(request: Request) -> Response:
+        found = logged_in(request)
+        if found is None:
+            return RedirectResponse("/login", status_code=303)
+        rows = [_row_view(r) for r in _read_jsonl(ctx.audit_path)
+                if r.get("decision") in SENTINEL_CODES][-SCAN_LOG_ROWS:][::-1]
+        return render(request, "sentinel.html", sentinel=_sentinel_view(ctx), scan_log=rows,
+                      reset_blocker=ctx.resets.blocker(),
+                      reset_wait=ctx.resets.seconds_left(),
+                      cooling=0 if not ctx.real else
+                      ctx.service.policy.settings_cooling_off_seconds // 60,
+                      flash=ctx.flash.pop(found[1], None))
+
+    @app.post("/sentinel/scan")
+    async def sentinel_scan(request: Request, csrf: str = Form("")) -> Response:
+        _, token = require_session(request, csrf)
+        if ctx.sentinel is None:
+            return back_to("/sentinel", token, "Sentinel is off: nothing was scanned.")
+        now = ctx.clock()
+        if ctx.last_scan is not None and now - ctx.last_scan < SCAN_EVERY_SECONDS:
+            ago = int(now - ctx.last_scan)
+            return back_to("/sentinel", token, f"Not run: a scan ran {ago} s ago "
+                           f"(one per {SCAN_EVERY_SECONDS} s).")
+        ctx.last_scan = now
+        await run_in_threadpool(ctx.sentinel.run_all_now)
+        return back_to("/sentinel", token, "Scan finished: all 4 jobs ran.")
+
+    @app.post("/sentinel/reset")
+    async def sentinel_reset(request: Request, code: str = Form(""),
+                             csrf: str = Form("")) -> Response:
+        session, token = require_session(request, csrf)
+        was_locked = ctx.service.locked
+        message = await run_in_threadpool(ctx.resets.request, session, _field(code))
+        if ctx.service.locked and not was_locked:    # a 3rd wrong code ended every session
+            return RedirectResponse("/login", status_code=303)
+        return back_to("/sentinel", token, message)
+
+    @app.post("/sentinel/reset/cancel")
+    async def sentinel_reset_cancel(request: Request, csrf: str = Form("")) -> Response:
+        session, token = require_session(request, csrf)
+        done = ctx.resets.cancel(session.name)
+        return back_to("/sentinel", token, "Reset cancelled." if done
+                       else "No reset was waiting (nothing changed).")
+
+    # ---- Try to break it (throwaway worlds only) -----------------------------------------
+    @app.get("/drills", response_class=HTMLResponse)
+    async def drills_page(request: Request) -> Response:
+        found = logged_in(request)
+        if found is None:
+            return RedirectResponse("/login", status_code=303)
+        return render(request, "drills.html", drills=DRILLS, results=ctx.drills.recent(),
+                      flash=ctx.flash.pop(found[1], None))
+
+    @app.post("/drills/{kind}")
+    async def run_drill_route(request: Request, kind: str, csrf: str = Form("")) -> Response:
+        _, token = require_session(request, csrf)
+        if kind not in DRILLS:
+            raise Refusal(404, "Unknown drill.")
+        now = ctx.clock()
+        if ctx.last_drill is not None and now - ctx.last_drill < DRILL_EVERY_SECONDS:
+            return back_to("/drills", token, f"Not run: one drill per "
+                           f"{DRILL_EVERY_SECONDS} s. Try again shortly.")
+        ctx.last_drill = now
+        result = await run_in_threadpool(run_drill, kind, ctx.wall_clock())
+        ctx.drills.add(result)
+        return back_to("/drills", token, f"{result.title}: {result.summary}")
 
     # ---- setup ---------------------------------------------------------------------------
     @app.get("/setup", response_class=HTMLResponse)
@@ -399,9 +480,32 @@ def _settings_rows(ctx: AppContext) -> list[tuple[str, str]]:
     return rows
 
 
+_STATUS_PILL = {"good": "ok", "warning": "hold", "at risk": "block"}
+
+
+def _sentinel_view(ctx: AppContext) -> dict[str, Any] | None:
+    """Real Sentinel state for the pages, or None when Sentinel is off."""
+    s = ctx.sentinel
+    if s is None:
+        return None
+    open_ = s.open_findings()
+    report = {f.key: s.report_for(f.key) for f in open_}
+    return {"score": s.score(), "status": s.status(), "pill": _STATUS_PILL[s.status()],
+            "scanned": s.last_scan_wall is not None, "rounds": s.rounds,
+            "counts": {sev: sum(1 for f in open_ if f.severity.value == sev)
+                       for sev in ("critical", "high", "medium", "low")},
+            "open": [{"f": f, "report": report[f.key].text if report[f.key] else ""}
+                     for f in open_],
+            "resolved": [f for f, _ in s.resolved_findings()]}
+
+
 def _shell(ctx: AppContext) -> dict[str, Any]:
     """Live status for the page frame: counts and breaker state, all real."""
-    return {"pending_count": len(ctx.reviewer.pending()),
+    s = ctx.sentinel
+    sentinel_line = ("Sentinel is off" if s is None else
+                     f"Sentinel: {s.status()}, score {s.score()}" if s.last_scan_wall
+                     else "Sentinel: first scan pending")
+    return {"pending_count": len(ctx.reviewer.pending()), "sentinel_line": sentinel_line,
             "breaker": ctx.executor.breaker_open or ctx.desk.breaker_open,
             "locked": ctx.service.locked,
             "mode_label": "REAL MODE · OWNER" if ctx.real else "DEMO MODE"}

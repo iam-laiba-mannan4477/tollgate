@@ -1,0 +1,70 @@
+{% extends "shell.html" %}
+{% block title %}Sentinel{% endblock %}
+{% block heading %}Sentinel{% endblock %}
+{% block content %}
+{% if flash %}<div class="flash" role="status">{{ flash }}</div>{% endif %}
+{% if not sentinel %}
+<div class="card"><div class="empty"><b>Sentinel is off</b>TOLLGATE_SENTINEL=off, so there are no scans, findings, score or reset here. The Gate, approvals and breakers work as before. Set TOLLGATE_SENTINEL=on and restart to turn it on.</div></div>
+{% else %}
+<p class="sub">Sentinel checks settings and the audit log every minute, files for leaked keys every 10 minutes, and replays 8 attacks every 15 minutes. It may only tighten. Findings are kept in memory and are lost on restart; the audit log keeps the history.</p>
+<div class="grid g2">
+  <div class="card">
+    <div class="h2">Security score
+      <form method="post" action="/sentinel/scan"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm go" type="submit">Scan now</button></form></div>
+    {% include "_score.html" %}
+    <p class="fine">Scan now runs all 4 jobs once, at most once every 30 s. It can only tighten.</p>
+  </div>
+  <div class="card">
+    <div class="h2">Breakers</div>
+    <ul class="list">
+      <li class="row"><div class="mid"><b>Circuit breakers</b><small>Executor and desk</small></div>{% if breaker %}<span class="st block">OPEN</span>{% else %}<span class="st ok">closed</span>{% endif %}</li>
+      <li class="row"><div class="mid"><b>Approvals</b><small>Locked after 3 wrong codes in a row</small></div>{% if locked %}<span class="st block">locked</span>{% else %}<span class="st ok">open</span>{% endif %}</li>
+    </ul>
+    {% if reset_wait is not none %}
+    <p class="fine">A reset is waiting: it applies in {{ reset_wait // 60 }} min {{ reset_wait % 60 }} s unless cancelled.</p>
+    <form method="post" action="/sentinel/reset/cancel"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn sm danger" type="submit">Cancel reset</button></form>
+    {% elif reset_blocker %}
+    <p class="fine" data-reset="blocked">Reset breaker: {{ reset_blocker }}</p>
+    {% else %}
+    <form method="post" action="/sentinel/reset" class="resetform">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label for="reset-code">Fresh code from your authenticator</label>
+      <input id="reset-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <button class="btn danger" type="submit">Reset breaker</button>
+    </form>
+    <p class="fine">Resetting loosens protection. It needs a fresh code; a wrong code counts toward the 3-code lockout. {% if cooling %}It applies after a {{ cooling }}-minute cooling-off, the owner is notified, and you can cancel it.{% else %}Demo: no cooling-off.{% endif %}</p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card stack-gap">
+  <div class="h2">Open findings</div>
+  {% if sentinel.open %}
+  <ul class="list">
+    {% for item in sentinel.open %}
+    <li class="row"><div class="mid"><b>{{ item.f.title }}</b><small>{{ item.f.location }} · {{ item.f.job }}</small>
+      <p class="report">{{ item.report or item.f.detail }}</p></div>
+      <span class="st sev-{{ item.f.severity.value }}">{{ item.f.severity.value }}</span></li>
+    {% endfor %}
+  </ul>
+  {% else %}<div class="empty"><b>No open findings</b>{% if sentinel.scanned %}Nothing weak was seen on the last checks.{% else %}The first scan has not run yet.{% endif %}</div>{% endif %}
+</div>
+
+<div class="card stack-gap">
+  <div class="h2">Resolved since the app started</div>
+  {% if sentinel.resolved %}
+  <ul class="list">{% for f in sentinel.resolved %}<li class="row"><div class="mid"><b>{{ f.title }}</b><small>{{ f.location }}</small></div><span class="st ok">resolved</span></li>{% endfor %}</ul>
+  {% else %}<div class="empty">None yet.</div>{% endif %}
+</div>
+
+<div class="card stack-gap">
+  <div class="h2">Scan log<a class="btn sm" href="/audit?f=Sentinel">In Activity</a></div>
+  {% if scan_log %}
+  <div class="tblwrap"><table class="tbl keepfirst"><thead><tr><th>Code</th><th>What happened</th></tr></thead><tbody>
+  {% for r in scan_log %}<tr><td><span class="st {{ r.pill }}">{{ r.decision }}</span></td><td>{{ r.reason }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  <p class="fine">Sentinel lines from the audit log, newest first (last 50). No line is written per scan: only findings, actions, errors and a summary at most every 10 minutes.</p>
+  {% else %}<div class="empty">No Sentinel lines in the audit log yet.</div>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,4 +1,4 @@
-# Sentinel (core, no web page yet)
+# Sentinel
 
 Code: `tollgate/sentinel/`. Sentinel watches, finds weak spots and may only **tighten**:
 trip the breakers, or set a loosened setting back to its safe baseline. It never loosens
@@ -91,7 +91,39 @@ There is no button. A tripped breaker stays open until one of these:
 2. **Restarting the app.** Everything is in memory, so a restart starts with closed breakers
    and unlocked approvals. The audit log keeps the history.
 
-The reset rules for a future Sentinel page are still to be decided by the owner.
+3. **The Sentinel page** (`/sentinel`, "Reset breaker"), under these approved rules:
+   - needs the logged-in approver session, the CSRF token and a **fresh code**; a wrong code
+     counts toward the same 3-code lockout as approvals;
+   - refused while approvals are locked (unlocking is still option 1 or a restart), while any
+     **critical or high** finding is open (Sentinel would trip it again), when no breaker is
+     open, and when Sentinel is off;
+   - one reset closes both breakers (executor and desk), audited as `RESET` with the
+     approver's name and "reset from Sentinel page"; the owner gets an outbox notice;
+   - **real mode**: waits 15 minutes (`settings_cooling_off_seconds`), can be cancelled, and
+     when the wait ends it applies only if approvals are unlocked and no critical or high
+     finding is open (otherwise it is dropped, audited as `CANCEL`);
+   - **demo mode**: no cooling-off, so a demo is not blocked.
+
+## Web pages
+- **`/sentinel`**: the real score and status (no score before the first scan), open findings
+  with their reports, findings resolved since the app started, the last 50 Sentinel audit
+  lines, "Scan now" (any logged-in approver, one per 30 s, runs all 4 jobs once, tighten-only)
+  and "Reset breaker" (above). With `TOLLGATE_SENTINEL=off` it shows "Sentinel is off".
+- **`/drills`** ("Try to break it", code in `tollgate/app/drills.py`): four drills, each in a
+  new throwaway mock world in a temporary folder that is deleted afterwards. They never
+  receive the live app objects, and write nothing to the live audit log (tested: the audit
+  file is byte-identical after every drill). Results live in memory only: the last 10, for at
+  most 1 hour. One drill per 10 s.
+  1. attack drill: the 8 frozen attacks, each in its own world (attack, expected, actual,
+     money moved);
+  2. stolen session: a throwaway demo app is started in-process (FastAPI test client, no
+     network) and a logged-in session with no authenticator tries 3 times through the web
+     forms: no code, then two wrong codes. Expected and tested: refused, no money moved,
+     approvals locked, breaker tripped, in that throwaway app;
+  3. weaken a setting: the auto limit is loosened in a throwaway world and Sentinel's config
+     audit there finds it, sets it back and trips that world's breakers;
+  4. plant a fake key: a random fake key is written to a throwaway folder and the scanner
+     finds it; only "Groq API key (masked)", file and line are shown.
 
 ## Honest limits
 - Tested in mock mode with fake clocks, fake keys and temporary git repos; the
@@ -104,5 +136,6 @@ The reset rules for a future Sentinel page are still to be decided by the owner.
 - Findings and the score are in memory and are lost on restart (the audit lines remain).
 - Canaries prove the frozen attack set is stopped by today's code; they cannot prove that
   new, unknown attacks are stopped.
-- No web page yet: findings, score and reports are visible only in the audit log,
-  `data/incidents.jsonl` and in code.
+- The pages were tested with FastAPI's test client only, **not in a real browser** (phone
+  width included).
+- Resolved findings and drill results are in memory and are lost on restart.

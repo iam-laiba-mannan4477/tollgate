@@ -12,7 +12,8 @@ from tollgate.approval.totp import code_at
 from tests.web_support import CSRF_RE, DEMO_ENV, REAL_ENV, REAL_PASSWORD, Web
 
 STATIC = Path(__file__).resolve().parent.parent / "tollgate" / "app" / "static"
-LOGGED_IN_PAGES = ["/overview", "/approvals", "/audit", "/audit?f=Held", "/security", "/setup"]
+LOGGED_IN_PAGES = ["/overview", "/approvals", "/audit", "/audit?f=Held", "/security", "/setup",
+                   "/sentinel", "/drills"]
 BANNER = 'class="demo-banner"'
 
 
@@ -116,9 +117,11 @@ def test_static_files_are_self_contained():
 
 
 # ---- honest content -----------------------------------------------------------------------
-def test_sentinel_shown_as_not_enabled(demo_pages):
-    for page in ("/overview", "/security"):
-        assert "Sentinel is not enabled yet" in demo_pages[page]
+def test_no_score_before_sentinel_has_scanned(demo_pages):
+    """Before Sentinel's first round there is no score at all (no fake number)."""
+    for page in ("/overview", "/security", "/sentinel"):
+        assert "First scan pending" in demo_pages[page]
+        assert 'class="score"' not in demo_pages[page]
     assert "Security score" in demo_pages["/overview"]
     assert not re.search(r'class="ring', demo_pages["/overview"])     # no fake score dial
 

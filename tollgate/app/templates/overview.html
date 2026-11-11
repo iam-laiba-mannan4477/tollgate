@@ -14,7 +14,7 @@
     <p class="fine">Counted from the audit log.</p></div>
   <div class="card">
     <div class="h2">Security score</div>
-    <div class="empty"><b>Sentinel is not enabled yet</b>No score is shown until Sentinel runs real checks.</div>
+    {% include "_score.html" %}
   </div>
 </div>
 <div class="grid g2 stack-gap">
@@ -31,8 +31,18 @@
     {% else %}<div class="empty">No activity yet.</div>{% endif %}
   </div>
   <div class="card">
-    <div class="h2">Sentinel<a class="btn sm" href="/security">Open</a></div>
-    <div class="empty"><b>Sentinel is not enabled yet</b>It will scan settings, look for leaked keys and run attack drills. Until then, nothing here is simulated.</div>
+    <div class="h2">Sentinel<a class="btn sm" href="/sentinel">Open</a></div>
+    {% if not sentinel %}
+    <div class="empty"><b>Sentinel is off</b>TOLLGATE_SENTINEL=off: no scans, no findings, no score. The Gate still checks every payment.</div>
+    {% elif not sentinel.open %}
+    <div class="empty"><b>No open findings</b>{% if sentinel.scanned %}From Sentinel's real checks.{% else %}The first scan has not run yet.{% endif %}</div>
+    {% else %}
+    <ul class="list">
+      {% for item in sentinel.open[:4] %}
+      <li class="row"><div class="mid"><b>{{ item.f.title }}</b><small>{{ item.f.location }}</small></div><span class="st sev-{{ item.f.severity.value }}">{{ item.f.severity.value }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

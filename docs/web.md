@@ -116,3 +116,12 @@ jobs; a Sentinel error never stops a release. With `off` it is exactly the loop 
   (waiting approvals then never release: fail closed).
 - A clean Ctrl+C shutdown of the live server was not tested; shutdown is tested through the
   test client's app lifecycle only.
+
+## Sentinel and "Try to break it" pages
+`/sentinel` and `/drills` need a logged-in approver; every button is a POST with a CSRF
+token. Rules and numbers: [sentinel.md](sentinel.md#web-pages). The DEMO banner now sits in
+the page flow (not sticky) and the side nav carries a DEMO label in demo mode. The stolen
+session drill uses FastAPI's in-process test client (httpx, already in requirements.txt).
+Not checked in a real browser.
+
+If approvals lock during the demo, stop and restart the app.

@@ -1,0 +1,8 @@
+{% if not sentinel %}
+<div class="empty"><b>Sentinel is off</b>No score is shown while Sentinel is off.</div>
+{% elif not sentinel.scanned %}
+<div class="empty"><b>First scan pending</b>No score is shown until Sentinel has run its real checks.</div>
+{% else %}
+<div class="score"><b class="big">{{ sentinel.score }}</b><span class="st {{ sentinel.pill }}">{{ sentinel.status }}</span></div>
+<p class="fine">From {{ sentinel.open|length }} open finding{{ "" if sentinel.open|length == 1 else "s" }}: {{ sentinel.counts.critical }} critical, {{ sentinel.counts.high }} high, {{ sentinel.counts.medium }} medium, {{ sentinel.counts.low }} low. Any open critical finding means "at risk".</p>
+{% endif %}

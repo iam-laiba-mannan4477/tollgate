@@ -1,0 +1,31 @@
+{% extends "shell.html" %}
+{% block title %}Try to break it{% endblock %}
+{% block heading %}Try to break it{% endblock %}
+{% block content %}
+<div class="notice" role="note"><b>Practice world only.</b> Every button here builds a new throwaway mock world in a temporary folder and deletes it afterwards. Your live settings, breakers, audit log and money are not touched, and nothing is written to the live audit log.</div>
+{% if flash %}<div class="flash stack-gap" role="status">{{ flash }}</div>{% endif %}
+<div class="grid g2 stack-gap">
+  {% for kind, title in drills.items() %}
+  <div class="card">
+    <div class="h2">{{ title }}</div>
+    <p class="fine">{% if kind == "attacks" %}Replays the 8 frozen attacks, each in its own world, and shows what happened.{% elif kind == "stolen" %}Starts a throwaway app. A logged-in session without the authenticator tries 3 times to approve a held payment through the web forms.{% elif kind == "weaken" %}Loosens the auto limit in a throwaway world, then runs Sentinel's config audit there.{% else %}Writes a random fake key into a throwaway folder and runs the secrets scanner on it. The key is never shown.{% endif %}</p>
+    <form method="post" action="/drills/{{ kind }}"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="btn go" type="submit">Run</button></form>
+  </div>
+  {% endfor %}
+</div>
+<div class="card stack-gap">
+  <div class="h2">Results</div>
+  {% if results %}
+  {% for r in results %}
+  <div class="drill">
+    <div class="h2">{{ r.title }}<span class="st {{ 'ok' if r.passed else 'block' }}">{{ "stopped" if r.passed else "NOT stopped" }}</span></div>
+    <p class="fine">{{ r.summary }}</p>
+    <div class="tblwrap"><table class="tbl keepfirst"><thead><tr>{% for c in r.columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>
+    {% for row in r.rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+  {% endfor %}
+  <p class="fine">The last 10 results are kept for up to 1 hour, in memory only, and are lost on restart. One drill every 10 s.</p>
+  {% else %}<div class="empty">No drills run yet.</div>{% endif %}
+</div>
+{% endblock %}

@@ -27,6 +27,7 @@ from tollgate.sentinel.reports import Report, ReportWriter
 
 SCHEDULE = (("auditor", 60), ("monitor", 60), ("secrets", 600), ("canaries", 900))
 SUMMARY_EVERY_SECONDS = 600
+RESOLVED_KEPT = 50                # resolved findings shown on the page (memory only)
 Clock = Callable[[], float]
 
 
@@ -51,10 +52,23 @@ class Sentinel:
         self.errors = 0
         self.last_checks: list[auditor.Check] = []
         self.reports: list[Report] = []
+        self.resolved: list[tuple[Finding, float]] = []      # (finding, wall time), newest last
+        self.last_scan_wall: float | None = None
 
     # ---- read-only views -----------------------------------------------------------------
     def open_findings(self) -> list[Finding]:
         return self._store.open_findings()
+
+    def blocking_findings(self) -> list[Finding]:
+        """Open critical or high findings (these block a breaker reset)."""
+        return [f for f in self._store.open_findings() if f.severity in ACTION_SEVERITIES]
+
+    def resolved_findings(self) -> list[tuple[Finding, float]]:
+        return list(reversed(self.resolved))
+
+    def report_for(self, key: str) -> Report | None:
+        found = [r for r in self.reports if r.finding_key == key]
+        return found[-1] if found else None
 
     def score(self) -> int:
         return score(self._store.open_findings())
@@ -116,6 +130,14 @@ class Sentinel:
             self._report(f)
         for f in resolved:
             self._event("RESOLVED", f"sentinel: no longer seen: {f.title} [{f.location}]")
+            self.resolved = (self.resolved + [(f, self._wall())])[-RESOLVED_KEPT:]
+        self.last_scan_wall = self._wall()
+
+    def run_job(self, job: str) -> None:
+        """Run one named job now (used by Try-to-break-it drills on a throwaway Sentinel)."""
+        if job not in dict(SCHEDULE):
+            raise ValueError("unknown job")
+        self._run(job)
 
     def _act(self, f: Finding) -> None:
         if f.severity not in ACTION_SEVERITIES:

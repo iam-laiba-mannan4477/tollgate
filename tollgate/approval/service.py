@@ -386,6 +386,29 @@ class ApprovalService:
             self._outbox.notify(str(value), "settings_change", text)    # tell the new one too
         return ChangeResult(cid, False, "queued: cooling-off, owner notified", release_at, secret)
 
+    def verify_step_up(self, session: object, code: object, purpose: str) -> tuple[bool, str]:
+        """Check a live approver session AND a fresh code for a loosening action outside
+        approvals (the Sentinel page's breaker reset). Same rules as request_change: refused
+        while locked; a wrong code counts toward the same lockout."""
+        label = str(purpose)[:40] or "step-up"
+        with self._lock:
+            self._now()
+            if self._locked:
+                return False, "approvals locked: a person must unlock"
+            if not self._account.is_approver_session(session):
+                return False, "not an approver session: refused"
+            if not self._account.check_code(code, self._wall()):
+                failed = self._factor_failed(label)
+                self._audit.append(f"{label}-{next(self._seq)}", "FACTORFAIL",
+                                   f"{label}: {failed.reason}", None, None)
+                return False, failed.reason
+            self._fails = 0
+            return True, "factor ok"
+
+    def notify_owner(self, kind: str, text: str) -> None:
+        """Send one owner notice through the outbox (no secrets in `text`)."""
+        self._notify(kind, text)
+
     def cancel_change(self, change_id: str, person: str) -> bool:
         name = check_name(person)
         with self._lock:

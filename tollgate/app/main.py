@@ -24,6 +24,8 @@ from typing import Any, AsyncIterator, Callable, Mapping
 from fastapi import FastAPI
 
 from tollgate.agent.proposal import Proposal, ProposalKind, build_proposal
+from tollgate.app.breaker_reset import BreakerReset
+from tollgate.app.drills import DrillStore
 from tollgate.app.auth_mode import AuthMode, read_auth_mode, read_session_key
 from tollgate.app.ratelimit import LoginLimiter
 from tollgate.app.security_headers import add_security_headers
@@ -71,6 +73,10 @@ class AppContext:
     loop_errors: int = 0
     loop_stopped: bool = False
     sentinel: Sentinel | None = None
+    resets: Any = None                 # BreakerReset (Sentinel page), set in build_context
+    drills: Any = None                 # DrillStore (Try to break it), memory only
+    last_scan: float | None = None     # monotonic time of the last "Scan now"
+    last_drill: float | None = None    # monotonic time of the last drill
     flash: dict[str, str] = field(default_factory=dict)
     seq: Any = field(default_factory=lambda: itertools.count(1))
 
@@ -121,9 +127,12 @@ def build_context(env: Mapping[str, str] | None = None, *, data_dir: str | Path 
     sentinel = Sentinel(executor=executor, desk=desk, service=service, account=account,
                         audit_path=audit, data_dir=folder, repo_root=REPO_ROOT, clock=clock,
                         wall_clock=wall_clock) if sentinel_on else None
-    return AppContext(mode, account, service, executor, desk, drafter, reviewer,
-                      LoginLimiter(clock), WebSessions(account), signer, audit, outbox,
-                      clock, wall_clock, sentinel=sentinel)
+    ctx = AppContext(mode, account, service, executor, desk, drafter, reviewer,
+                     LoginLimiter(clock), WebSessions(account), signer, audit, outbox,
+                     clock, wall_clock, sentinel=sentinel)
+    ctx.resets = BreakerReset(ctx)
+    ctx.drills = DrillStore(wall_clock)
+    return ctx
 
 
 def propose_payment(ctx: AppContext, proposal_id: str, amount_cents: int, recipient: str,
@@ -153,6 +162,7 @@ def run_release_once(ctx: AppContext) -> None:
     try:
         ctx.reviewer.release_due()
         ctx.service.apply_due_changes()
+        ctx.resets.apply_due()
     except Exception:
         ctx.loop_errors += 1
         ctx.event("loop", "ERROR", "release loop error: this round stopped, will retry")
