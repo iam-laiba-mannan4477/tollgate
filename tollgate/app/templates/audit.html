@@ -4,9 +4,9 @@
 {% block content %}
 <p class="sub">Every decision Tollgate makes is written to a hash-chained audit log. Editing, deleting or reordering a line breaks the chain.</p>
 {% if chain_ok %}
-<p class="flash"><span class="st ok">chain OK</span> Hash chain check: OK (no edited, deleted or reordered lines found).</p>
+<p class="flash" data-guide="chain"><span class="st ok">chain OK</span> Hash chain check: OK (no edited, deleted or reordered lines found).</p>
 {% else %}
-<p class="alert">Hash chain check FAILED: the log was changed.</p>
+<p class="alert" data-guide="chain">Hash chain check FAILED: the log was changed.</p>
 {% endif %}
 <nav class="tabs" aria-label="Filter">
   {% for f in filters %}<a class="tab" href="/audit{{ '' if f == 'All' else '?f=' ~ f }}" aria-current="{{ 'true' if f == filter else 'false' }}">{{ f }}</a>{% endfor %}

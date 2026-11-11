@@ -62,7 +62,7 @@
   function showDemo() {
     forms.forEach(function (d) {
       if (!d.auto || !d.field || waiting) { return; }
-      d.field.value = freshCode(d) || "";
+      d.field.value = freshCode(d) || d.next || "";   // used: show the next code; Confirm waits
       var used = d.form.querySelector("[data-demoused]");
       if (used && stepOffset(d) >= 1) { used.hidden = true; }
     });
@@ -96,7 +96,8 @@
 
 // ---- intro animation: once per tab session, skippable, never blocks the page ------------
 // Skipped when: already seen in this tab (sessionStorage), prefers-reduced-motion, or the
-// URL has ?nointro=1 (for tests and screen recordings). Any error -> it stays hidden.
+// URL has ?nointro=1 (for tests and screen recordings). ?intro=1 replays it on demand
+// ("Replay intro" links). Any error -> it stays hidden.
 (function () {
   "use strict";
   var KEY = "tollgate.introSeen";
@@ -109,8 +110,10 @@
     return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
   }
   function optedOut() { return /(?:^|[?&])nointro=1(?:&|$)/.test(window.location.search); }
+  // ?intro=1 (the "Replay intro" link) plays it again even if already seen in this tab.
+  function replay() { return /(?:^|[?&])intro=1(?:&|$)/.test(window.location.search); }
   try {
-    if (seen() || reducedMotion() || optedOut()) { remember(); return; }
+    if ((seen() && !replay()) || reducedMotion() || optedOut()) { remember(); return; }
     remember();
     var timer = null;
     var done = false;

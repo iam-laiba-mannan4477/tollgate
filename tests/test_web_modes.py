@@ -65,7 +65,7 @@ def test_demo_marks_a_used_code(tmp_path):
     w = Web(tmp_path, DEMO_ENV)
     w.login()
     w.approve("demo-1", w.code())
-    assert "already used" in w.client.get("/approvals").text
+    assert "This demo code was just used. Press Confirm and it will wait a few seconds for the next one, then approve." in w.client.get("/approvals").text
 
 
 def test_demo_cannot_reset_authenticator(tmp_path):

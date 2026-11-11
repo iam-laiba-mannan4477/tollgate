@@ -114,7 +114,7 @@ def register(app: FastAPI, ctx: AppContext) -> None:
             csrf = ctx.signer.csrf_for(pre)
         resp = templates.TemplateResponse(request, page, {
             "demo": not ctx.real, "user": found[0].name if found else None,
-            "csrf": csrf, "path": request.url.path, **_shell(ctx), **data},
+            "csrf": csrf, "path": request.url.path, "page": page, **_shell(ctx), **data},
             status_code=status)
         if new_pre:
             set_cookie(resp, pre_cookie, new_pre)
@@ -221,7 +221,9 @@ def register(app: FastAPI, ctx: AppContext) -> None:
         now, wall = ctx.clock(), ctx.wall_clock()
         waiting = [{"id": i, "seconds": max(0, int(at - now))}
                    for i, at in ctx.service.waiting()]
-        return render(request, "approvals.html", pending=ctx.reviewer.pending(),
+        pending = ctx.reviewer.pending()
+        return render(request, "approvals.html", pending=pending,
+                      will_wait=_will_wait(ctx, pending),
                       waiting=waiting, locked=ctx.service.locked,
                       breaker=ctx.executor.breaker_open or ctx.desk.breaker_open,
                       flash=ctx.flash.pop(found[1], None),
@@ -453,6 +455,21 @@ def _gate_counts(rows: list[dict]) -> dict[str, int]:
             counts[str(r["decision"])] += 1
     counts["total"] = sum(counts.values())
     return counts
+
+
+def _will_wait(ctx: AppContext, pending: list) -> set[str]:
+    """Ids of held items that would wait out the cooling-off once approved. Display only:
+    it mirrors ApprovalService._needs_delay with the policy in force; the service decides."""
+    p = ctx.service.policy
+    out = set()
+    for item in pending:
+        cents = item.amount_cents
+        known = (ctx.executor.knows_recipient(item.target)
+                 if item.kind.value in ("payment", "refund")
+                 else ctx.desk.knows_customer(item.target))
+        if cents > p.delay_over_cents or (not known and cents > p.new_recipient_delay_over_cents):
+            out.add(item.id)
+    return out
 
 
 def _money(cents: int) -> str:

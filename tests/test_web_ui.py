@@ -92,8 +92,11 @@ def _assert_no_inline(name: str, html: str) -> None:
     assert "javascript:" not in html.lower(), f"{name}: javascript: URL"
     scripts = SCRIPT_TAG.findall(html)
     assert scripts, f"{name}: app.js missing"
+    srcs = [re.search(r'src="([^"]+)"', attrs) for attrs, _ in scripts]
+    assert [m.group(1) if m else None for m in srcs] == ["/static/app.js", "/static/guide.js"], \
+        f"{name}: only app.js and guide.js may load"
     for attrs, body in scripts:
-        assert 'src="/static/app.js"' in attrs and not body.strip(), f"{name}: inline script"
+        assert not body.strip(), f"{name}: inline script"
     assert not EXTERNAL.search(html), f"{name}: external file"
 
 
@@ -109,11 +112,12 @@ def test_no_inline_script_or_style_in_real_pages(real_pages):
 
 def test_static_files_are_self_contained():
     css = (STATIC / "style.css").read_text(encoding="utf-8")
-    js = (STATIC / "app.js").read_text(encoding="utf-8")
     assert "@import" not in css and "http" not in css and "url(" not in css
-    assert "http" not in js and "fetch(" not in js and "XMLHttpRequest" not in js
-    assert "eval(" not in js and "innerHTML" not in js
-    assert sorted(p.name for p in STATIC.iterdir()) == ["app.js", "style.css"]
+    for name in ("app.js", "guide.js"):
+        js = (STATIC / name).read_text(encoding="utf-8")
+        assert "http" not in js and "fetch(" not in js and "XMLHttpRequest" not in js, name
+        assert "eval(" not in js and "innerHTML" not in js, name
+    assert sorted(p.name for p in STATIC.iterdir()) == ["app.js", "guide.js", "style.css"]
 
 
 # ---- honest content -----------------------------------------------------------------------
@@ -170,7 +174,9 @@ def test_demo_code_appears_only_inside_the_panels(tmp_path):
     assert len(panels) == 2
     for panel in panels:
         assert f'data-code="{now}"' in panel and f'data-next="{nxt}"' in panel
-        assert 'data-used="false"' in panel and "Demo code, filled in for you" in panel
+        assert 'data-used="false"' in panel
+        assert ("Demo: the code is already filled in for you. Just press Confirm and this "
+                "payment will be approved.") in panel
         field = re.search(r'name="code"[^>]*value="(\d*)"[^>]*data-demo-code-field', panel)
         assert field and field.group(1) == now
         assert ">Confirm</button>" in panel and "data-panel-cancel" in panel
@@ -207,15 +213,88 @@ def test_real_mode_never_shows_a_code(tmp_path):
     assert "value=" not in field and "required" in field              # empty, typed by hand
 
 
-def test_used_code_is_not_prefilled_and_flagged(tmp_path):
+def test_used_code_shows_the_next_code_never_an_empty_box(tmp_path):
+    """After one approval this step's code is used. The box must not look empty: it shows
+    the next code (Confirm then waits until it is fresh), never the used one."""
     w = Web(tmp_path, DEMO_ENV)
     w.login()
-    w.approve("demo-1", code_at(w.secret, w.wall.t))                 # uses this step's code
+    used = code_at(w.secret, w.wall.t)
+    w.approve("demo-1", used)                                         # uses this step's code
     [panel] = PANEL.findall(w.client.get("/approvals").text)
     assert 'data-used="true"' in panel and "data-demoused" in panel
-    assert re.search(r'name="code"[^>]*value=""[^>]*data-demo-code-field', panel)
     field = re.search(r'<input name="code"[^>]*>', panel).group(0)
-    assert "required" not in field          # an empty field must not stop the waiting click
+    assert f'value="{code_at(w.secret, w.wall.t + 30)}"' in field and used not in field
+    assert "required" not in field
+
+
+def test_demo_code_box_is_high_contrast_and_filled(tmp_path):
+    w = Web(tmp_path, DEMO_ENV)
+    w.login()
+    for panel in PANEL.findall(w.client.get("/approvals").text):
+        field = re.search(r'<input name="code"[^>]*>', panel).group(0)
+        assert 'class="code-in demo-filled"' in field
+        assert re.search(r'value="\d{6}"', field)
+    css = (STATIC / "style.css").read_text(encoding="utf-8")
+    rule = re.search(r"input\.code-in\.demo-filled\s*\{([^}]*)\}", css).group(1)
+    assert "background: var(--pearl)" in rule and "color: var(--ink)" in rule   # dark on light
+
+
+def test_real_mode_panel_lines(tmp_path):
+    w = Web(tmp_path, REAL_ENV)
+    w.enroll_real()
+    propose_payment(w.ctx, "p-1", 5_000, "acct_new_y", "invoice", "please pay")
+    w.login("Robin", REAL_PASSWORD)
+    [panel] = PANEL.findall(w.client.get("/approvals").text)
+    assert ("Open your authenticator app on your phone, type the 6-digit code shown there, "
+            "then press Confirm.") in panel
+    assert "demo-filled" not in panel and "already filled in" not in panel
+    field = re.search(r'<input name="code"[^>]*>', panel).group(0)
+    assert "value=" not in field
+
+
+def test_wait_line_only_on_payments_that_will_wait(tmp_path):
+    """$1,500 to a new recipient waits 15 minutes; $25 does not (display mirrors the policy)."""
+    w = Web(tmp_path, DEMO_ENV)
+    w.login()
+    page = w.client.get("/approvals").text
+    panels = dict(zip(re.findall(r'action="/approvals/([\w-]+)/approve"', page), PANEL.findall(page)))
+    line = ("After you confirm, this payment waits 15 minutes before it is sent. "
+            "You can cancel it during the wait.")
+    assert line in panels["demo-2"] and line not in panels["demo-1"]
+    assert "Reject removes the request. Nothing is sent." in page
+    assert page.count("Reject removes the request. Nothing is sent.") == 2      # under each Reject
+    r = w.approve("demo-2", w.code())
+    assert "approved, waiting" in r.text                                        # it really waits
+
+
+@pytest.mark.parametrize("env", ["demo", "real"])
+def test_no_live_button_can_lock_approvals(tmp_path, env):
+    """The stolen-session button is gone from the live page: only Confirm (with a code),
+    Cancel and Reject remain, and a note links to the throwaway drill instead."""
+    w = Web(tmp_path, DEMO_ENV if env == "demo" else REAL_ENV)
+    if env == "real":
+        w.enroll_real()
+        propose_payment(w.ctx, "p-1", 5_000, "acct_new_y", "invoice", "please pay")
+        w.login("Robin", REAL_PASSWORD)
+    else:
+        w.login()
+    page = w.client.get("/approvals").text
+    assert "Try as a stolen session" not in page
+    assert '<input type="hidden" name="code" value="">' not in page
+    assert ('Want to see what happens when a stolen session tries to approve? Try it safely '
+            'in <a href="/drills">Try to break it</a>.') in page
+    for panel in PANEL.findall(page):
+        assert panel.count("<form ") == 1                            # only the Confirm form
+    assert "Stolen session tries to approve" in w.client.get("/drills").text   # drill kept
+
+
+def test_each_held_payment_is_well_formed(tmp_path):
+    """No stray closing tag after a panel (it used to close the page wrapper early)."""
+    w = Web(tmp_path, DEMO_ENV)
+    w.login()
+    page = w.client.get("/approvals").text
+    for art in re.findall(r'<article class="apr">.*?</article>', page, re.S):
+        assert art.count("<div") == art.count("</div>"), art[:80]
 
 
 def test_next_step_code_is_accepted_after_the_wait(tmp_path):

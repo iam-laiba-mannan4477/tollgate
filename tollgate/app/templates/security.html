@@ -8,7 +8,7 @@
     <div class="h2">Sentinel<a class="btn sm" href="/sentinel">Open</a></div>
     {% include "_score.html" %}
   </div>
-  <div class="card">
+  <div class="card" data-guide="live">
     <div class="h2">Live status</div>
     <ul class="list">
       <li class="row"><div class="mid"><b>Circuit breaker</b><small>Trips on bursts or after 3 wrong codes</small></div>{% if breaker %}<span class="st block">OPEN</span>{% else %}<span class="st ok">closed</span>{% endif %}</li>
@@ -17,7 +17,7 @@
     </ul>
   </div>
 </div>
-<div class="card stack-gap">
+<div class="card stack-gap" data-guide="settings">
   <div class="h2">Settings in force now</div>
   <div class="tblwrap"><table class="tbl"><thead><tr><th>Setting</th><th>Now</th></tr></thead><tbody>
   {% for name, value in settings %}<tr><td>{{ name }}</td><td class="fine">{{ value }}</td></tr>{% endfor %}

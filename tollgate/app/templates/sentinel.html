@@ -14,7 +14,7 @@
     {% include "_score.html" %}
     <p class="fine">Scan now runs all 4 jobs once, at most once every 30 s. It can only tighten.</p>
   </div>
-  <div class="card">
+  <div class="card" data-guide="breakers">
     <div class="h2">Breakers</div>
     <ul class="list">
       <li class="row"><div class="mid"><b>Circuit breakers</b><small>Executor and desk</small></div>{% if breaker %}<span class="st block">OPEN</span>{% else %}<span class="st ok">closed</span>{% endif %}</li>
@@ -37,7 +37,7 @@
   </div>
 </div>
 
-<div class="card stack-gap">
+<div class="card stack-gap" data-guide="findings">
   <div class="h2">Open findings</div>
   {% if sentinel.open %}
   <ul class="list">

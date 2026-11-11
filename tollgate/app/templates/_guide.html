@@ -1,0 +1,162 @@
+{#- "How to use this page" guide. Presentation only.
+    Everything here is plain server-rendered HTML inside a native <details>, so the Guide
+    button opens it and it reads fine with no JavaScript. /static/guide.js (optional) adds the
+    one-at-a-time page tour (note cards pointing at the real part of the page named by
+    data-guide-target), the first-visit opening, and remembers ticked tasks in this tab.
+    Each tip: first sentence = what it is, second = why it matters. -#}
+{%- set steps = [] -%}
+{%- set nxt = {} -%}
+{%- if page == "overview.html" -%}
+  {%- set _ = steps.append((".top h1", "This is the Overview, a summary of what Tollgate is doing right now. It lets you see at a glance whether anything needs you.")) -%}
+  {%- set _ = steps.append((".card.pearl", "This shows held requests: payments the Gate stopped until a person decides. Nothing in them is sent until you approve.")) -%}
+  {%- set _ = steps.append(("[data-guide=score]", "This is the security score, worked out from Sentinel's real checks (none is shown before its first scan). It tells you quickly whether anything looks weak.")) -%}
+  {%- set _ = steps.append((".card.tile", "These are counts of the Gate's decisions, taken from the audit log. They show how often payments were allowed, held or blocked.")) -%}
+  {%- set _ = nxt.update({"href": "/approvals", "label": "Open Approvals", "text": "Next: open Approvals and decide on the held payments."}) -%}
+{%- elif page == "approvals.html" -%}
+  {%- set _ = steps.append((".sub", "This page lists held payments: ones the Gate will not send without a person. It is where you approve or reject them.")) -%}
+  {%- if pending -%}
+    {%- if demo -%}
+      {%- set _ = steps.append(("[data-approve-panel] > summary", "Approve with code opens a small panel with a one-time code field. Approving needs your signed-in session and a fresh code; in demo mode the code is filled in for you.")) -%}
+    {%- else -%}
+      {%- set _ = steps.append(("[data-approve-panel] > summary", "Approve with code opens a small panel with a one-time code field. Approving needs your signed-in session and a fresh 6-digit code from your authenticator app.")) -%}
+    {%- endif -%}
+    {%- set _ = steps.append((".apr form[action$='/reject']", "Reject removes the request and nothing is sent. It is the safe choice if you are not sure.")) -%}
+  {%- endif -%}
+  {%- set _ = steps.append(("[data-guide=waiting]", "This list shows approved payments still in their 15-minute cooling-off. The wait gives the owner time to cancel a payment that should not go out.")) -%}
+  {%- set _ = nxt.update({"href": "/audit", "label": "Open Activity", "text": "Next: open Activity to see what was written to the audit log."}) -%}
+{%- elif page == "audit.html" -%}
+  {%- set _ = steps.append((".tbl", "This is the audit log: every decision, with its id and reason. It is the record of what happened and why.")) -%}
+  {%- set _ = steps.append(("[data-guide=chain]", "Each line is chained to the one before it with a hash. That means edited, deleted or reordered lines are detected.")) -%}
+  {%- set _ = steps.append((".tabs", "These tabs filter the log by allowed, held, blocked or Sentinel lines. They help you find one kind of event quickly.")) -%}
+  {%- set _ = nxt.update({"href": "/sentinel", "label": "Open Sentinel", "text": "Next: open Sentinel to see the watchman's checks."}) -%}
+{%- elif page == "sentinel.html" -%}
+  {%- if sentinel -%}
+    {%- set _ = steps.append((".top h1", "Sentinel is the watchman: it checks settings, the audit log and files for leaked keys, and replays attacks. It finds weak spots before someone can use them.")) -%}
+    {%- set _ = steps.append(("form[action='/sentinel/scan']", "Scan now runs all of Sentinel's checks once, right away. Use it to see the current state without waiting for the schedule.")) -%}
+    {%- set _ = steps.append(("[data-guide=findings]", "Open findings are the problems Sentinel saw, each with a short plain report. They tell you what to look at.")) -%}
+    {%- set _ = steps.append(("[data-guide=breakers]", "These are the circuit breakers, which stop all sending when tripped. Sentinel can only tighten settings or trip a breaker, never loosen; resetting one needs you and a fresh code.")) -%}
+  {%- else -%}
+    {%- set _ = steps.append((".card", "Sentinel is off, so this page has no scans or findings. The Gate still checks every payment.")) -%}
+  {%- endif -%}
+  {%- set _ = nxt.update({"href": "/drills", "label": "Open Try to break it", "text": "Next: open Try to break it and run a drill."}) -%}
+{%- elif page == "drills.html" -%}
+  {%- set _ = steps.append((".notice", "Every drill here runs in a throwaway world, a temporary copy that is deleted afterwards. Your live settings, log and money are never touched.")) -%}
+  {%- set _ = steps.append(("[data-guide=drills]", "Each card is one drill; press Run to start it. One drill can run every 10 seconds.")) -%}
+  {%- set _ = steps.append(("[data-guide=results]", "Results show what each drill did and whether the attack was stopped. They are kept for up to an hour, in memory only.")) -%}
+  {%- set _ = nxt.update({"href": "/security", "label": "Open Security", "text": "Next: open Security to see the settings in force."}) -%}
+{%- elif page == "security.html" -%}
+  {%- set _ = steps.append(("[data-guide=settings]", "These are the settings in force right now, such as limits and wait times. This page only reads them; loosening one needs a person.")) -%}
+  {%- set _ = steps.append(("[data-guide=live]", "This shows the breaker, the approvals lock and the audit chain check, as of when the page loaded. It tells you whether anything is frozen or broken.")) -%}
+  {%- set _ = nxt.update({"href": "/overview", "label": "Open Overview", "text": "Next: go back to the Overview, or try the tasks in the Guide."}) -%}
+{%- elif page == "setup_reset.html" -%}
+  {%- set _ = steps.append((".card", "This is where you replace your authenticator app, the phone app that makes your 6-digit codes. Replacing it needs your current code and waits 15 minutes, so a thief cannot swap it quickly.")) -%}
+  {%- set _ = nxt.update({"href": "/approvals", "label": "Open Approvals", "text": "Next: go back to Approvals."}) -%}
+{%- elif page == "setup_demo.html" -%}
+  {%- set _ = steps.append((".lg-card", "Demo mode uses a fixed, public fake secret instead of a phone app. That is why there is nothing to set up and the code is filled in for you inside the Approve panel.")) -%}
+  {%- set _ = nxt.update({"href": "/approvals" if user else "/login", "label": "Open Approvals" if user else "Go to login", "text": "Next: go to Approvals." if user else "Next: log in with the demo account."}) -%}
+{%- elif page == "login.html" -%}
+  {%- if demo -%}
+    {%- set _ = steps.append(("form[action='/login']", "This is the approver login; use the demo account shown below. The DEMO banner means fake money and a fake secret, so nothing real can happen.")) -%}
+  {%- else -%}
+    {%- set _ = steps.append(("form[action='/login']", "This is the approver login, for the owner only. The AI agent has no login, so it can never approve a payment.")) -%}
+  {%- endif -%}
+  {%- set _ = nxt.update({"href": "/approvals", "label": "Open Approvals", "text": "Next: log in, then open Approvals."}) -%}
+{%- elif page == "setup_start.html" -%}
+  {%- set _ = steps.append(("form[action='/setup/start']", "This one-time setup makes you the approver; the first person to finish it becomes the approver. Next you scan a QR code with your authenticator app, which makes your codes.")) -%}
+  {%- set _ = nxt.update({"href": "/login", "label": "Go to login", "text": "Next: fill this in and scan the QR code. Already set up? Log in."}) -%}
+{%- elif page == "setup_qr.html" -%}
+  {%- set _ = steps.append((".qr", "This QR code holds the secret for your authenticator app and is shown only once. Scan it, then type the app's first code to finish setup.")) -%}
+  {%- set _ = nxt.update({"href": "/login", "label": "Go to login", "text": "Next: after you confirm, log in."}) -%}
+{%- endif -%}
+{%- if steps and page in ("overview.html", "approvals.html") -%}
+  {%- if demo -%}
+    {%- set _ = steps.append((".demo-banner", "The DEMO banner means this is a demo with fake money and a fake secret. Nothing you do here can move real money.")) -%}
+  {%- else -%}
+    {%- set _ = steps.append((".modechip", "This label shows you are in real mode as the owner. Only you can approve, with the code from your authenticator app.")) -%}
+  {%- endif -%}
+{%- endif -%}
+{%- if steps %}
+{%- if demo -%}
+{%- set tasks = [
+  ("/approvals", "Approvals", "Press Approve with code on the $25.00 payment, then Confirm.", "The payment leaves Held payments and the message says it was sent."),
+  ("/audit", "Activity", "Look at the newest lines at the top.", "New lines for your approval (GRANT) and the payment (ALLOW)."),
+  ("/approvals", "Approvals", "Approve the $1,500.00 payment the same way.", "It moves to Approved, waiting (cooling-off) with a countdown and a Cancel button. Its hostile customer note is shown as untrusted text and is not followed."),
+  ("/sentinel", "Sentinel", "Press Scan now.", "A score and status from real checks, and the scan log."),
+  ("/drills", "Try to break it", "Run the attack drill, then the stolen-session drill (wait 10 seconds between them).", "8 of 8 attacks stopped and the stolen session refused, all in a throwaway world."),
+  ("/security", "Security", "Read the settings in force.", "The limits, wait times and lockout rules that apply right now."),
+  ("/approvals", "Approvals", "Press Reject on a held payment.", "The request is removed and nothing is sent. If nothing is held any more, restart the app to get the two demo payments back."),
+] -%}
+{%- set last_note = "If approvals lock during the demo, stop the app and start it again." -%}
+{%- else -%}
+{%- set tasks = [
+  ("/setup", "Setup", "Do the first setup: enter your name, password and alert address, scan the QR code with your authenticator app, then type the app's first code.", "Setup complete."),
+  ("/login", "Login", "Log in with your name and password.", "The Approvals page."),
+  ("/approvals", "Approvals", "If a payment is held, press Approve with code, type the 6-digit code from your authenticator app, then Confirm.", "It is sent, or it waits 15 minutes if it is big. The app makes no example payments in real mode, so something must propose one first."),
+  ("/audit", "Activity", "Look at the newest lines at the top.", "Your login and any approval, each with an id and a reason."),
+  ("/sentinel", "Sentinel", "Press Scan now.", "A score and status from real checks, and the scan log."),
+  ("/drills", "Try to break it", "Run the attack drill, then the stolen-session drill (wait 10 seconds between them).", "8 of 8 attacks stopped and the stolen session refused, all in a throwaway world."),
+  ("/security", "Security", "Read the settings in force.", "The limits, wait times and lockout rules that apply right now."),
+  ("/approvals", "Approvals", "If a payment is held, press Reject on it.", "The request is removed and nothing is sent."),
+] -%}
+{%- set last_note = "If approvals lock after 3 wrong codes, a person must unlock them, or restart the app." -%}
+{%- endif %}
+<details class="guide" id="guide" data-guide-page="{{ page|replace('.html', '') }}" data-guide-mode="{{ 'demo' if demo else 'real' }}">
+  <summary class="guide-btn" aria-label="Guide: how to use this page">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6v3H9zM7 5H5v16h14V5h-2"/><path d="M10 11a2 2 0 1 1 2.5 1.9c-.4.1-.5.4-.5.8V15M12 18h.01"/></svg>
+    <span>Guide</span>
+  </summary>
+  <div class="guide-list" id="guide-menu">
+    <div class="guide-top"><b>Guide</b><button type="button" class="btn sm go" data-guide-tour hidden>Start the page tour</button></div>
+    <section class="guide-what">
+      <h3>What is this app?</h3>
+      <p data-guide-what>Tollgate is a payment firewall for AI agents. An AI agent can only propose a payment; the Gate then allows it, holds it for a person, or blocks it. A person approves held payments with a one-time code. Everything here is fake money in a sandbox.</p>
+    </section>
+    <section>
+      <h3>On this page</h3>
+      <ol class="guide-tips">
+        {% for target, text in steps %}<li data-guide-target="{{ target }}">{{ text }}</li>{% endfor %}
+        {% if nxt %}<li class="guide-nextstep" data-guide-target="" data-guide-link="{{ nxt.href }}" data-guide-link-text="{{ nxt.label }}">{{ nxt.text }} <a href="{{ nxt.href }}">{{ nxt.label }}</a></li>{% endif %}
+      </ol>
+    </section>
+    <details class="guide-sub">
+      <summary>Words used in this app</summary>
+      <dl class="glossary">
+        <dt>Gate</dt><dd>The rule checker that looks at every proposed payment and allows it, holds it for a person, or blocks it.</dd>
+        <dt>Held</dt><dd>A payment the Gate will not send until a person approves it.</dd>
+        <dt>Approve with code</dt><dd>Approving a held payment with your signed-in session plus a fresh one-time code.</dd>
+        <dt>Stamp</dt><dd>A single-use permission, made when you approve, that works for 5 minutes for exactly one amount and one recipient.</dd>
+        <dt>Cooling-off</dt><dd>A 15-minute wait after approving a big payment, so it can still be cancelled.</dd>
+        <dt>Circuit breaker</dt><dd>A switch that stops all sending when something looks wrong; only a person can reset it.</dd>
+        <dt>Sentinel</dt><dd>The watchman that checks settings, the log and files on a schedule, and may only tighten things.</dd>
+        <dt>Audit log</dt><dd>The record of every decision, chained so that edits are detected.</dd>
+        <dt>Untrusted text</dt><dd>Message text from customers or tools, shown as data and never followed as instructions.</dd>
+        <dt>Throwaway world</dt><dd>A temporary practice copy used by the drills and deleted afterwards, so nothing live is touched.</dd>
+        <dt>Demo mode</dt><dd>A practice mode with fake money, a documented fake account and a public fake secret.</dd>
+        <dt>Real mode</dt><dd>The owner's mode, where codes come only from your authenticator app.</dd>
+      </dl>
+    </details>
+    <details class="guide-sub" data-guide-tasks>
+      <summary>Try it yourself <span class="fine" data-guide-progress></span></summary>
+      <ol class="tasks">
+        {% for href, where, todo, see in tasks %}
+        <li data-task="{{ loop.index }}"><label><input type="checkbox" data-task-box> <b>Task {{ loop.index }} of {{ tasks|length }}</b></label>
+          <a href="{{ href }}">{{ where }}</a>: {{ todo }} <span class="see">You should see: {{ see }}</span></li>
+        {% endfor %}
+      </ol>
+      <p class="fine">{{ last_note }}</p>
+    </details>
+    <p class="guide-replay"><a href="{{ path }}?intro=1" data-replay-intro>Replay intro</a></p>
+  </div>
+</details>
+<div class="guide-card" id="guide-card" hidden role="dialog" aria-modal="false" aria-labelledby="guide-count">
+  <p class="guide-count" id="guide-count"></p>
+  <p class="guide-text" id="guide-text" aria-live="polite"></p>
+  <p class="guide-go-wrap"><a class="btn sm go" id="guide-go" href="/overview" hidden></a></p>
+  <div class="guide-nav">
+    <button type="button" class="btn sm" data-guide-back>Back</button>
+    <button type="button" class="btn sm go" data-guide-next>Next</button>
+    <button type="button" class="btn sm" data-guide-close>Close</button>
+  </div>
+  <button type="button" class="guide-skip" data-guide-skip>Skip</button>
+</div>
+{%- endif %}

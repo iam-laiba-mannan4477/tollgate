@@ -7,6 +7,7 @@
 <title>{% block title %}Tollgate{% endblock %} · Tollgate</title>
 <link rel="stylesheet" href="/static/style.css">
 <script src="/static/app.js" defer></script>
+<script src="/static/guide.js" defer></script>
 </head>
 <body>
 {% if demo %}
@@ -14,5 +15,6 @@
 {% endif %}
 {% include "_intro.html" %}
 {% block body %}{% endblock %}
+{% include "_guide.html" %}
 </body>
 </html>

@@ -20,36 +20,37 @@
   <form method="post" action="/approvals/{{ p.id }}/reject" class="btnrow tight">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <button type="submit" class="btn">Reject</button>
+    <span class="fine">Reject removes the request. Nothing is sent.</span>
   </form>
   <details class="su panel" data-approve-panel>
     <summary class="btn go">Approve with code</summary>
     <form method="post" action="/approvals/{{ p.id }}/approve" class="panelform"{% if demo %} data-demo-approve
       data-seconds="{{ demo_code.seconds }}" data-code="{{ demo_code.code }}" data-next="{{ demo_code.next }}" data-used="{{ 'true' if demo_code.used else 'false' }}"{% endif %}>
       <input type="hidden" name="csrf" value="{{ csrf }}">
-      <label>One-time code{% if not demo %} from your authenticator app{% endif %}
-        <input name="code" class="code-in" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code"{% if demo %} value="{{ '' if demo_code.used else demo_code.code }}" data-demo-code-field{% else %} required{% endif %}></label>
+      {% if demo %}
+      <label>One-time code
+        <input name="code" class="code-in demo-filled" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" value="{{ demo_code.next if demo_code.used else demo_code.code }}" data-demo-code-field></label>
+      {% else %}
+      <label>One-time code from your authenticator app
+        <input name="code" class="code-in" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label>
+      {% endif %}
       <button type="submit" class="btn go" data-demo-button>Confirm</button>
       <a class="btn" href="/approvals" data-panel-cancel>Cancel</a>
       {% if demo %}
-      <p class="fine demohint">Demo code, filled in for you (fake demo secret). In real mode you type the code from your authenticator app and it is never shown here.</p>
-      {% if demo_code.used %}<p class="error" data-demoused>This step's code was already used. Confirm waits for the next fresh code, then sends it.</p>{% endif %}
+      <p class="fine demohint">Demo: the code is already filled in for you. Just press Confirm and this payment will be approved.</p>
+      {% if demo_code.used %}<p class="error" data-demoused>This demo code was just used. Press Confirm and it will wait a few seconds for the next one, then approve.</p>{% endif %}
       <p class="fine" data-demo-status></p>
+      {% else %}
+      <p class="fine">Open your authenticator app on your phone, type the 6-digit code shown there, then press Confirm.</p>
       {% endif %}
+      {% if p.id in will_wait %}<p class="fine" data-will-wait>After you confirm, this payment waits 15 minutes before it is sent. You can cancel it during the wait.</p>{% endif %}
     </form>
-    {% if demo %}
-    <form method="post" action="/approvals/{{ p.id }}/approve" class="panelform">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <input type="hidden" name="code" value="">
-      <button type="submit" class="btn danger sm">Try as a stolen session (no code)</button>
-      <span class="fine">Counts as a failed code. 3 failures lock approvals.</span>
-    </form>
-    {% endif %}
+    <p class="fine stolen-note">Want to see what happens when a stolen session tries to approve? Try it safely in <a href="/drills">Try to break it</a>.</p>
   </details>
-  </div>
 </article>
 {% endfor %}
 
-<div class="h2 sectionhead">Approved, waiting (cooling-off)</div>
+<div class="h2 sectionhead" data-guide="waiting">Approved, waiting (cooling-off)</div>
 {% if not waiting %}<div class="empty">No approvals are waiting.</div>{% endif %}
 {% for w in waiting %}
 <article class="apr">

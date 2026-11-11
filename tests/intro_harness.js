@@ -1,6 +1,6 @@
 // Runs tollgate/app/static/app.js against a tiny fake DOM and prints what the intro did.
 // Usage: node intro_harness.js <app.js> <scenario>
-// Scenarios: first, seen, nointro, reduced, key, skip, nostorage, broken
+// Scenarios: first, seen, replay, nointro, reduced, key, skip, nostorage, broken
 "use strict";
 const fs = require("fs");
 const vm = require("vm");
@@ -21,7 +21,7 @@ const intro = el("intro");
 const skip = el("skip");
 const docListeners = {};
 const timers = [];
-const store = scenario === "seen" ? { "tollgate.introSeen": "1" } : {};
+const store = scenario === "seen" || scenario === "replay" ? { "tollgate.introSeen": "1" } : {};
 const sessionStorage = scenario === "nostorage" ? undefined : {
   getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); },
 };
@@ -35,7 +35,8 @@ const document = {
   removeEventListener: (t) => { delete docListeners[t]; },
 };
 const window = {
-  location: { search: scenario === "nointro" ? "?nointro=1" : "", reload() {} },
+  location: { search: scenario === "nointro" ? "?nointro=1" : scenario === "replay" ? "?intro=1" : "",
+              reload() {} },
   matchMedia: () => ({ matches: scenario === "reduced" }),
 };
 Object.defineProperty(window, "sessionStorage", {

@@ -81,6 +81,12 @@ def _run(scenario: str) -> dict:
 
 
 @pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_intro_replays_with_intro_1_even_when_seen():
+    r = _run("replay")
+    assert r["shownAtStart"] and r["autoEndMs"] == 6300
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
 def test_intro_plays_once_on_first_visit():
     r = _run("first")
     assert r["shownAtStart"] and r["remembered"] and r["skipFocused"]

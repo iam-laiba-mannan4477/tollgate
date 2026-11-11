@@ -12,7 +12,7 @@
   <div class="card tile"><span>Requests checked by the Gate</span><b>{{ counts.total }}</b>
     <div class="trio"><div><i class="c-ok">{{ counts.ALLOW }}</i>allowed</div><div><i class="c-hold">{{ counts.HOLD }}</i>held</div><div><i class="c-block">{{ counts.BLOCK }}</i>blocked</div></div>
     <p class="fine">Counted from the audit log.</p></div>
-  <div class="card">
+  <div class="card" data-guide="score">
     <div class="h2">Security score</div>
     {% include "_score.html" %}
   </div>

@@ -22,6 +22,7 @@
         <b><span class="dot{% if breaker or locked %} off{% endif %}"></span>{% if breaker or locked %}Payouts frozen{% else %}Tollgate protecting{% endif %}</b>
         <span>{{ sentinel_line }}</span>
       </div>
+      <a class="linkbtn" href="{{ path }}?intro=1" data-replay-intro>Replay intro</a>
       <form method="post" action="/logout">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit" class="linkbtn">Log out ({{ user }})</button>

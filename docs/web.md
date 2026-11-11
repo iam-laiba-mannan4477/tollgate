@@ -28,10 +28,14 @@ listens on `http://127.0.0.1:8000` only (there is no host option).
   one **Approve with code** button: a native `<details>` panel (it opens without JavaScript)
   with the code field, Confirm and Cancel. There is no separate code card. In demo mode only,
   the field inside the panel is pre-filled with the current demo code and a short "demo code"
-  hint is shown there; if this step's code was already used, the field is empty and Confirm
+  hint is shown there; if this step's code was already used, Confirm
   (via `app.js`) waits for the next step and then sends the next code, so a normal click
-  never sends a used code. The server checks it exactly as a typed code. Demo also offers
-  "Try as a stolen session (no code)" inside the panel, which counts as a failed code. When
+  never sends a used code. The server checks it exactly as a typed code. In demo mode the
+  field is shown in high contrast (dark on light) with the line "Demo: the code is already
+  filled in for you. Just press Confirm and this payment will be approved."; if this step's
+  code was used, the next code is shown and Confirm waits until it is fresh. The live page has
+  **no** stolen-session button (it could lock the real approvals); a note links to the
+  stolen-session drill on "Try to break it", which runs in a throwaway world. When
   nothing is held, no code appears on the page. Real mode never shows a code: the field is
   empty and must be typed from the authenticator app.
 - `/audit` ("Activity"): the audit log (newest first, filter tabs, hash-chain check) and the
@@ -129,3 +133,52 @@ session drill uses FastAPI's in-process test client (httpx, already in requireme
 Not checked in a real browser.
 
 If approvals lock during the demo, stop and restart the app.
+
+## Page guide ("How to use this page")
+Every page has a **Guide** button (bottom right, `templates/_guide.html`). It is a native
+`<details>`, so it opens with no JavaScript and shows, as plain text:
+- **What is this app?** in four short sentences;
+- **On this page**: the tips for this page. Each says what a thing is, then why it matters,
+  and the last one says what to do next, with a link;
+- **Words used in this app**: one plain sentence each for Gate, Held, Approve with code,
+  Stamp, Cooling-off, Circuit breaker, Sentinel, Audit log, Untrusted text, Throwaway world,
+  Demo mode and Real mode;
+- **Try it yourself**: numbered tasks ("Task 3 of 7"), each with a link to its page, what to
+  do and what you should see. Demo mode has 7 tasks; the "Simulate an agent proposal" task is
+  left out because that form does not exist. Real mode has 8, starting with setup and login,
+  with the code only from your phone. Ticked tasks are remembered in this browser tab;
+- **Replay intro**.
+
+`static/guide.js` (optional, separate from `app.js`) adds the **page tour**: one note card
+at a time next to the real part of the page, with "Step 2 of 6", Back, Next (Done on the
+last), Close and Skip; Escape closes it. The card is always fully inside the window and never
+covers the thing it describes (below, above, right or left of it); when there is no room it
+becomes a strip along the bottom and the target is scrolled above it. The tour opens once by
+itself on the first visit to each page in a browser tab (`sessionStorage`, in try/catch),
+after the intro if one is playing, with the "What is this app?" card first on the very first
+visit. Card position is set through CSSOM from the script, never with `style=""` in markup
+(strict CSP kept). Reduced motion turns off its fade-in.
+
+Demo text mentions the DEMO banner and the code filled in inside the Approve panel. Real-mode
+text says the code comes only from your authenticator app; a test checks it never uses words
+that suggest an on-screen code. Presentation only: nothing on the server changes.
+
+Tested: the HTML in both modes with FastAPI's test client, and `guide.js` under Node with a
+fake page (`tests/guide_harness.js`). That covered placement, Next through to the last card
+(including Approvals tips 4 and 5), the welcome card on a first visit, no auto-open once seen
+or with storage blocked, and the strip on a small window. **Not run in a real browser**
+(keyboard, real layout and phone width included).
+
+## Intro animation: why it plays only once, and how to replay it
+The padlock-and-key intro plays once per **browser tab session**: the first page you open in
+a tab plays it, and `sessionStorage` remembers it, so it does not play again on every page or
+reload. Playing six seconds of animation on every click would get in the way. Reduced-motion
+settings and `?nointro=1` skip it.
+
+To replay it, for example for a screen recording:
+- click **Replay intro**, in the Guide or in the sidebar footer (the footer is hidden at phone
+  width; use the Guide there); or
+- add `?intro=1` to any page address, for example `http://127.0.0.1:8000/overview?intro=1`.
+
+This plays it even if it was already seen in this tab. Reduced motion still skips it, on
+purpose. The replay was tested under Node with a fake page, **not in a real browser**.
