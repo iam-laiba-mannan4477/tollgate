@@ -35,6 +35,18 @@ listens on `http://127.0.0.1:8000` only (there is no host option).
 - `/security`: live breaker, lockout and hash-chain status, and the settings in force
   (read-only). Sentinel: "not enabled yet".
 
+## Intro animation
+The padlock-and-key intro from `design/preview_demo_mode.html` plays once per browser tab
+(remembered in `sessionStorage`), on the first page opened, in both modes. It is plain SVG and
+CSS classes (`_intro.html`, `style.css`); `app.js` decides whether to show it.
+- Skip: the "Skip intro" button (focused when it starts) or any key. It ends by itself after 6.3 s.
+- Never shown with `prefers-reduced-motion`, with `?nointro=1` in the URL (for tests and
+  screen recordings, e.g. `http://127.0.0.1:8000/login?nointro=1`), when sessionStorage is
+  blocked, or if anything in the script fails. The element is `hidden` in the HTML, so without
+  the script the page just shows.
+- `?nointro=1` is read only by the browser script; the server ignores it, so it cannot change
+  any security behaviour.
+
 ## Two modes
 | | demo (default) | real |
 |---|---|---|
@@ -79,7 +91,9 @@ too. An expired session is deleted on the server; the cookie alone is worthless.
 ## Release loop
 A background task calls `release_due()` (and applies due settings changes) every 5 seconds.
 Errors are counted and audited; that round releases nothing more. It stops when the app
-shuts down. **Sentinel will own this schedule later.**
+shuts down. With `TOLLGATE_SENTINEL=on` (the default) the same loop then runs Sentinel's due
+jobs; a Sentinel error never stops a release. With `off` it is exactly the loop above. See
+[sentinel.md](sentinel.md).
 
 ## Honest limits
 - **Not tested in a real browser.** All tests use FastAPI's test client. The live server was

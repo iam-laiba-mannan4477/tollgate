@@ -85,3 +85,44 @@
   tick();
   setInterval(tick, 1000);
 })();
+
+// ---- intro animation: once per tab session, skippable, never blocks the page ------------
+// Skipped when: already seen in this tab (sessionStorage), prefers-reduced-motion, or the
+// URL has ?nointro=1 (for tests and screen recordings). Any error -> it stays hidden.
+(function () {
+  "use strict";
+  var KEY = "tollgate.introSeen";
+  var PLAY_MS = 6300;
+  var intro = document.getElementById("intro");
+  if (!intro) { return; }
+  function seen() { try { return window.sessionStorage.getItem(KEY) === "1"; } catch (e) { return true; } }
+  function remember() { try { window.sessionStorage.setItem(KEY, "1"); } catch (e) { /* ignore */ } }
+  function reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+  function optedOut() { return /(?:^|[?&])nointro=1(?:&|$)/.test(window.location.search); }
+  try {
+    if (seen() || reducedMotion() || optedOut()) { remember(); return; }
+    remember();
+    var timer = null;
+    var done = false;
+    var end = function () {
+      if (done) { return; }
+      done = true;
+      clearTimeout(timer);
+      document.removeEventListener("keydown", onKey);
+      intro.classList.add("out");
+      setTimeout(function () { intro.hidden = true; intro.classList.remove("play", "out"); }, 850);
+    };
+    var onKey = function () { end(); };
+    intro.hidden = false;
+    void intro.offsetWidth;            // restart the CSS animation
+    intro.classList.add("play");
+    var skip = document.getElementById("skip");
+    if (skip) { skip.addEventListener("click", end); skip.focus(); }
+    document.addEventListener("keydown", onKey);
+    timer = setTimeout(end, PLAY_MS);
+  } catch (e) {
+    intro.hidden = true;               // fail open: the page is always usable
+  }
+})();

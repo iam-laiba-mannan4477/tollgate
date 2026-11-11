@@ -343,12 +343,15 @@ def _demo_code(ctx: AppContext, wall: float) -> dict[str, Any]:
 
 
 # ---- presentation helpers (read-only views of real state) ------------------------------
-FILTERS = ("All", "Allowed", "Held", "Blocked", "Other")
+FILTERS = ("All", "Allowed", "Held", "Blocked", "Sentinel", "Other")
+# Sentinel's audit codes: never counted as allowed, held or blocked requests.
+SENTINEL_CODES = frozenset({"FINDING", "RESOLVED", "TRIP", "TIGHTEN", "SNTL-ERR", "SNTL-SUM"})
 _GROUPS = {"ALLOW": "Allowed", "GRANT": "Allowed", "RELEASE": "Allowed",
            "HOLD": "Held", "DELAY": "Held",
            "BLOCK": "Blocked", "REFUSED": "Blocked", "FACTORFAIL": "Blocked",
            "LOCKOUT": "Blocked", "CANCEL": "Blocked", "LOGINFAIL": "Blocked"}
-_PILL = {"Allowed": "ok", "Held": "hold", "Blocked": "block", "Other": "info"}
+_GROUPS.update({code: "Sentinel" for code in SENTINEL_CODES})
+_PILL = {"Allowed": "ok", "Held": "hold", "Blocked": "block", "Sentinel": "info", "Other": "info"}
 
 
 def _row_view(r: dict) -> dict:

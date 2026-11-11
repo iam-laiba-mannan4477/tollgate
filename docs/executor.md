@@ -59,3 +59,11 @@ breaker, never closes it). The simulated desk got the same `approve(request, op,
 - Mock (no keys): `python -m pytest -q`
 - Real sandbox: `$env:TOLLGATE_MODE="sandbox"; python scripts\sandbox_demo.py`
 - Sandbox test: `$env:TOLLGATE_MODE="sandbox"; python -m pytest -q -m sandbox`
+
+## Tighten-only settings change (Sentinel phase)
+`tighten_config(field, value, by)` changes ONE Gate setting (`auto_limit_cents`,
+`velocity_max_payments`, `velocity_window_seconds`, `stamp_lifetime_seconds`) only if the new
+value is strictly stricter (lower limit, fewer payments, longer window, shorter stamps). Equal,
+looser, unknown or invalid values are refused and nothing is written. An applied change also
+updates the stamp store and is audited as `TIGHTEN`. There is no way to loosen a setting at
+runtime; that needs a person and a restart with new config.

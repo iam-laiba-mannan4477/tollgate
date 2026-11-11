@@ -1,17 +1,10 @@
 """Fail if a secret-looking value or a .env file is staged or present in tracked files.
 Usage: python scripts/check_secrets.py   (checks staged files; --all checks tracked files)"""
-import re, subprocess, sys
+import os, subprocess, sys
 
-PATTERNS = [
-    re.compile(r"BRAINTREE_(PRIVATE|PUBLIC)_KEY\s*=\s*[A-Za-z0-9]{16,}"),
-    re.compile(r"BRAINTREE_MERCHANT_ID\s*=\s*[A-Za-z0-9]{12,}"),
-    re.compile(r"gsk_[A-Za-z0-9]{20,}"),                 # Groq key shape
-    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),          # Anthropic key shape
-    re.compile(r"(GROQ|ANTHROPIC)_API_KEY\s*=\s*\S{8,}"),
-    re.compile(r"-----BEGIN (RSA |EC )?PRIVATE KEY-----"),
-    re.compile(r"(?i)(api[_-]?key|secret|token)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{24,}"),
-]
-PLACEHOLDER = re.compile(r"(?i)your_|example|changeme|xxxx|<.*>")
+# The patterns live in one place, shared with Sentinel's scanner (same patterns as before).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tollgate.sentinel.secret_patterns import PATTERNS, PLACEHOLDER  # noqa: E402
 
 def git(*args):
     return subprocess.run(["git", *args], capture_output=True, text=True).stdout.splitlines()

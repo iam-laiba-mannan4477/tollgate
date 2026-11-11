@@ -42,6 +42,14 @@ from tollgate.gate.stamps import SpendResult, StampError, StampStore
 # redeem(grant, request) -> approver name if the grant is valid for exactly this request
 GrantRedeemer = Callable[[object, Request], "str | None"]
 
+# For tighten_config: (new, current) -> True only if `new` is strictly stricter.
+_STRICTER_IF: dict[str, Callable[[int, int], bool]] = {
+    "auto_limit_cents": lambda new, cur: new < cur,          # fewer payments skip a person
+    "velocity_max_payments": lambda new, cur: new < cur,     # fewer payments per recipient
+    "velocity_window_seconds": lambda new, cur: new > cur,   # longer look-back window
+    "stamp_lifetime_seconds": lambda new, cur: new < cur,    # stamps expire sooner
+}
+
 
 @dataclass(frozen=True)
 class ExecutionResult:
@@ -101,6 +109,32 @@ class Executor:
     def trip_breaker(self) -> None:
         """Tightening: open the breaker (used on approval lockout). Never closes it."""
         self._breaker.trip()
+
+    @property
+    def config(self) -> GateConfig:
+        """The Gate settings in force (read-only copy; GateConfig is frozen)."""
+        return self._config
+
+    def tighten_config(self, field_name: str, value: int, by: str) -> bool:
+        """Make ONE Gate setting stricter (Sentinel may call this). Refuses anything that is
+        looser, equal, unknown or invalid, and returns False. Audited when applied."""
+        stricter = _STRICTER_IF.get(field_name) if isinstance(field_name, str) else None
+        if stricter is None or not isinstance(value, int) or isinstance(value, bool):
+            return False
+        with self._lock:
+            current = getattr(self._config, field_name)
+            if not stricter(value, current):
+                return False
+            try:
+                candidate = dataclasses.replace(self._config, **{field_name: value})
+            except (ValueError, TypeError):
+                return False
+            self._config = candidate
+            self.stamps._config = candidate
+            self._audit.append(f"tighten-gate-{next(self._reset_seq)}", "TIGHTEN",
+                               f"gate {field_name} tightened by {str(by)[:40] or 'unknown'}",
+                               value, None)
+            return True
 
     def approve(self, request: Request, grant: object, refund_of: str | None = None) -> str:
         """Turn a valid step-up grant into a one-time stamp for this exact HELD request.

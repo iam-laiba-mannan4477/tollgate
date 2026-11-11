@@ -42,7 +42,7 @@ authenticator app) see [docs/web.md](docs/web.md). The app listens on 127.0.0.1 
 
 ## What works now (after Phase 3d)
 
-Last full run, mock mode, no network: **450 passed, 3 skipped** (453 collected). The skipped
+Last full run, mock mode, no network: **565 passed, 3 skipped** (568 collected). The skipped
 tests make a real call (one Braintree sandbox, one Groq, one Claude) and run only when those
 keys are set; all three were skipped in this run.
 
@@ -64,8 +64,15 @@ keys are set; all three were skipped in this run.
 | Web attacks | A stolen session with no code cannot approve (3 tries lock approvals, trip the breaker, end the session). Any `Authorization` header, a forged or wrongly signed cookie, and the agent role are refused at approve. Untrusted text is shown escaped. No money moved in any of them. | 12 |
 | Demo and real modes | `TOLLGATE_AUTH_MODE` = `demo` (default: DEMO banner on every page, documented fake account, code shown on screen, fake secret only) or `real` (no default account, 12+ character password, code never shown, fake secret refused, session key required). Anything else stops startup. Security headers (frame blocking, nosniff, strict CSP with no inline scripts, no-referrer) on every response, errors included. | 24 |
 | QR setup | Real mode: QR code shown once, finished only by the first code from the app, in the same browser, within 10 minutes. Re-running it needs the current code and waits 15 minutes. The secret never appears in the audit log, outbox or Python logs. | 7 |
-| Release loop | A background loop calls `release_due()` every 5 seconds: releases due approvals, never cancelled ones, logs errors and releases nothing on error, stops on shutdown. Sentinel will own this schedule later. | 4 |
+| Release loop | A background loop calls `release_due()` every 5 seconds: releases due approvals, never cancelled ones, logs errors and releases nothing on error, stops on shutdown. With Sentinel on, the same loop also runs Sentinel. | 4 |
 | Web pages (look) | Overview, approvals, activity, security, login and setup pages in the approved design. DEMO banner at the top of every demo page, never in real mode. No inline scripts or styles, no external files (strict CSP kept). Demo: "Approve with demo code" waits for a fresh code instead of sending a used one. Sentinel and the security score show "Sentinel is not enabled yet" (nothing faked). The JavaScript and the phone-width layout were not run in a browser. | 11 |
+| Intro animation | The golden padlock and key from the design play once per browser tab, before the first page, in both modes. "Skip intro" button or any key skips it; reduced-motion settings and `?nointro=1` skip it entirely; if the script fails the page simply shows. Its control code was run under Node with a fake page, not in a real browser. | 12 |
+| Sentinel: config audit | Compares every Gate, desk, approval and session setting with the safe baseline (today's defaults): ok or weak, with a reason. | 5 |
+| Sentinel: secrets scan | Finds key-shaped text in tracked files, tests, logs and the data folder. Reports file, line and a masked label only; never stores the value; never opens `.env` (only asks git if it is ignored). A fake key fixture is found and never appears in reports, the audit log or logs. | 10 |
+| Sentinel: live monitor | Watches the audit log for bursts, repeated blocks, split payments under the limit, new recipient then a big payment, failed codes and lockouts. | 16 |
+| Sentinel: canaries | Replays all 8 frozen attacks in isolated mock worlds; all were stopped. A deliberately weakened world lets attacks through and that is caught as critical. The live app is never touched. | 5 |
+| Sentinel: tighten-only | Can only trip breakers or set a loosened setting back to the baseline. The executor's new `tighten_config` refuses anything looser, equal or invalid. Sentinel code never approves, sends or loosens (checked in code and in a full run). | 35 |
+| Sentinel: score, reports, schedule | Score 100 minus 40/25/10/3 per open critical/high/medium/low finding (any critical = "at risk"). One plain report per finding from the keyless scripted model, masked and capped; advisory only. Runs every 60 s / 10 min / 15 min inside the app loop; `TOLLGATE_SENTINEL=off` keeps the old loop. A fresh demo clone starts with no findings and never trips a breaker. A real model for reports is **not wired in** (untested). | 32 |
 
 Limits: step-up approval **reduces** the risk of a stolen approver session; it does not
 remove it. Someone holding both the session and the authenticator can still approve, and the
@@ -78,6 +85,6 @@ cookie on plain `http://127.0.0.1` is **untested** in a browser. Real-mode QR se
 with codes computed by the tests, not with Google Authenticator. Results apply to this
 sandbox and these tests only. Details:
 [docs/gate.md](docs/gate.md), [docs/executor.md](docs/executor.md),
-[docs/agent-policy.md](docs/agent-policy.md), [docs/web.md](docs/web.md).
+[docs/agent-policy.md](docs/agent-policy.md), [docs/web.md](docs/web.md), [docs/sentinel.md](docs/sentinel.md).
 
 License: MIT.

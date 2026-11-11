@@ -1,0 +1,62 @@
+{# Intro animation (from design/preview_demo_mode.html). Hidden by default: it only
+   plays if app.js runs and decides to show it, so the page never depends on it. #}
+<div id="intro" hidden role="dialog" aria-modal="true" aria-label="Tollgate intro animation">
+  <button class="skip" id="skip" type="button">Skip intro</button>
+  <div class="stage">
+    <div class="glow"></div>
+    <div class="lockwrap">
+      <svg viewBox="0 0 400 480" role="img" aria-label="A golden padlock opened by a golden key">
+        <defs>
+          <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#FFF1BF"/><stop offset=".22" stop-color="#E8C45E"/>
+            <stop offset=".45" stop-color="#FFE9A0"/><stop offset=".68" stop-color="#C79A2E"/>
+            <stop offset=".85" stop-color="#E9C766"/><stop offset="1" stop-color="#8A6212"/>
+          </linearGradient>
+          <linearGradient id="gold2" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#9A6F14"/><stop offset=".25" stop-color="#FFEDAA"/>
+            <stop offset=".5" stop-color="#D2A63A"/><stop offset=".75" stop-color="#F7DB86"/>
+            <stop offset="1" stop-color="#8A6212"/>
+          </linearGradient>
+          <linearGradient id="goldface" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#F6D77A"/><stop offset="1" stop-color="#B8891F"/>
+          </linearGradient>
+          <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+          </linearGradient>
+          <clipPath id="bodyclip"><path d="M96 214a14 14 0 0 1 14-14H290a14 14 0 0 1 14 14V318C304 366 262 396 200 418C138 396 96 366 96 318Z"/></clipPath>
+          <filter id="drop" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#000" flood-opacity=".6"/></filter>
+        </defs>
+        <g class="shackle" filter="url(#drop)">
+          <path d="M143 210 V146 a57 57 0 0 1 114 0 V210" fill="none" stroke="url(#gold2)" stroke-width="28" stroke-linecap="round"/>
+          <path d="M143 210 V146 a57 57 0 0 1 114 0 V210" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="3" stroke-linecap="round" transform="translate(-5 -2)"/>
+        </g>
+        <g filter="url(#drop)">
+          <path d="M96 214a14 14 0 0 1 14-14H290a14 14 0 0 1 14 14V318C304 366 262 396 200 418C138 396 96 366 96 318Z" fill="url(#gold)"/>
+          <g clip-path="url(#bodyclip)">
+            <rect x="60" y="150" width="60" height="320" fill="url(#sheen)" transform="rotate(18 90 300)" opacity=".8"/>
+          </g>
+          <path d="M96 214a14 14 0 0 1 14-14H290a14 14 0 0 1 14 14V318C304 366 262 396 200 418C138 396 96 366 96 318Z" fill="none" stroke="#FFF6D2" stroke-opacity=".6" stroke-width="2"/>
+          <path d="M112 222a8 8 0 0 1 8-8H280a8 8 0 0 1 8 8V316C288 356 252 382 200 400C148 382 112 356 112 316Z" fill="url(#goldface)" stroke="#7A5510" stroke-opacity=".45" stroke-width="2"/>
+                    <circle cx="200" cy="300" r="22" fill="#0A1A24"/>
+          <rect x="193" y="306" width="14" height="44" rx="6" fill="#0A1A24"/>
+          <circle cx="200" cy="300" r="26" fill="none" stroke="#FFF1BF" stroke-opacity=".5" stroke-width="2"/>
+          <circle cx="126" cy="232" r="4" fill="#8A6212"/><circle cx="274" cy="232" r="4" fill="#8A6212"/>
+          <text x="200" y="262" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-weight="700" font-size="12" letter-spacing="5" fill="#6B4A0C" fill-opacity=".8">TOLLGATE</text>
+        </g>
+        <g transform="translate(200 300)">
+          <g class="key" opacity="0">
+            <g filter="url(#drop)">
+              <rect x="0" y="-8" width="150" height="16" rx="6" fill="url(#gold2)"/>
+              <path d="M104 8h16v20h-16zM128 8h12v13h-12zM60 8h12v16H60z" fill="url(#gold)"/>
+              <path d="M150 -8h14" stroke="url(#gold2)" stroke-width="16" stroke-linecap="round"/>
+              <path d="M164 36 V-8 a38 38 0 0 1 76 0 V36 a14 14 0 0 1-14 14 H178 a14 14 0 0 1-14-14Z" fill="url(#gold)"/>
+              <path d="M180 34 V-6 a22 22 0 0 1 44 0 V34 Z" fill="#0A1A24"/>
+              <path d="M164 36 V-8 a38 38 0 0 1 76 0 V36 a14 14 0 0 1-14 14 H178 a14 14 0 0 1-14-14Z" fill="none" stroke="#FFF6D2" stroke-opacity=".6" stroke-width="2"/>
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div class="title"><b>TOLLGATE</b><span>A payment firewall for AI agents</span></div>
+  </div>
+</div>

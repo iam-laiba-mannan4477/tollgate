@@ -3,7 +3,9 @@
     create_app()            # reads TOLLGATE_AUTH_MODE, TOLLGATE_MODE, TOLLGATE_SESSION_KEY
 
 A background loop calls release_due() every 5 seconds (and applies due settings changes)
-and stops cleanly on shutdown. Sentinel will own this schedule later.
+and stops cleanly on shutdown. With TOLLGATE_SENTINEL=on (the default) the same loop then
+runs Sentinel's due jobs (tollgate/sentinel/runner.py); with off, only release_due() runs,
+exactly as before.
 
 The agent has no login here. It reaches the Gate only through the drafter handle, which
 can propose and nothing else.
@@ -30,10 +32,11 @@ from tollgate.approval.accounts import PBKDF2_ITERATIONS, ApproverAccount
 from tollgate.approval.service import ApprovalService
 from tollgate.approval.setup import build_service, connect
 from tollgate.approval.totp import MOCK_TOTP_SECRET_B32
-from tollgate.config import Mode, get_mode
+from tollgate.config import ConfigError, Mode, get_mode
 from tollgate.executor.backend import Backend, BraintreeBackend, MockBackend
 from tollgate.executor.executor import Executor
 from tollgate.roles import DrafterHandle, ReviewerHandle, build_roles
+from tollgate.sentinel.runner import Sentinel
 from tollgate.simulated.desk import SimulatedDesk
 
 RELEASE_INTERVAL_SECONDS = 5.0
@@ -43,6 +46,7 @@ LOOP_STOP_TIMEOUT_SECONDS = 10.0
 DEMO_NAME = "demo-owner"
 DEMO_PASSWORD = "demo-password-not-secret"
 DEMO_OWNER = "owner@demo.invalid"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 Clock = Callable[[], float]
 
@@ -66,6 +70,7 @@ class AppContext:
     loop_runs: int = 0
     loop_errors: int = 0
     loop_stopped: bool = False
+    sentinel: Sentinel | None = None
     flash: dict[str, str] = field(default_factory=dict)
     seq: Any = field(default_factory=lambda: itertools.count(1))
 
@@ -76,6 +81,14 @@ class AppContext:
     def event(self, prefix: str, decision: str, reason: str) -> None:
         """One audit line. Callers never pass secrets, passwords or codes."""
         self.service.record(f"{prefix}-{next(self.seq)}", decision, reason, None, None)
+
+
+def read_sentinel_flag(env: Mapping[str, str]) -> bool:
+    """TOLLGATE_SENTINEL = on (default) | off. Anything else stops startup (fail closed)."""
+    raw = env.get("TOLLGATE_SENTINEL", "on").strip().lower()
+    if raw not in ("on", "off"):
+        raise ConfigError("TOLLGATE_SENTINEL must be 'on' or 'off'")
+    return raw == "on"
 
 
 def _backend(mode: Mode) -> Backend:
@@ -89,6 +102,7 @@ def build_context(env: Mapping[str, str] | None = None, *, data_dir: str | Path 
     """Wire account, approvals, executor, desk and roles. Raises ConfigError on bad config."""
     source = os.environ if env is None else env
     mode = read_auth_mode(source)
+    sentinel_on = read_sentinel_flag(source)
     signer = CookieSigner(read_session_key(mode, source))
     folder = Path(data_dir or source.get("TOLLGATE_DATA_DIR", "data"))
     folder.mkdir(parents=True, exist_ok=True)
@@ -104,9 +118,12 @@ def build_context(env: Mapping[str, str] | None = None, *, data_dir: str | Path 
     desk = SimulatedDesk(audit, clock=clock, grants=service.redeem)
     connect(service, executor, desk)
     drafter, reviewer = build_roles(executor, desk, clock, service)
+    sentinel = Sentinel(executor=executor, desk=desk, service=service, account=account,
+                        audit_path=audit, data_dir=folder, repo_root=REPO_ROOT, clock=clock,
+                        wall_clock=wall_clock) if sentinel_on else None
     return AppContext(mode, account, service, executor, desk, drafter, reviewer,
                       LoginLimiter(clock), WebSessions(account), signer, audit, outbox,
-                      clock, wall_clock)
+                      clock, wall_clock, sentinel=sentinel)
 
 
 def propose_payment(ctx: AppContext, proposal_id: str, amount_cents: int, recipient: str,
@@ -130,7 +147,8 @@ def seed_demo(ctx: AppContext) -> None:
 
 
 def run_release_once(ctx: AppContext) -> None:
-    """One scheduler round. Errors are counted and logged; nothing is released on error."""
+    """One scheduler round. Errors are counted and logged; nothing is released on error.
+    Then, if Sentinel is on, its due jobs run (their errors never affect the release)."""
     ctx.loop_runs += 1
     try:
         ctx.reviewer.release_due()
@@ -138,6 +156,11 @@ def run_release_once(ctx: AppContext) -> None:
     except Exception:
         ctx.loop_errors += 1
         ctx.event("loop", "ERROR", "release loop error: this round stopped, will retry")
+    if ctx.sentinel is not None:
+        try:
+            ctx.sentinel.run_due()
+        except Exception:
+            ctx.event("sentinel", "SNTL-ERR", "sentinel round failed; nothing was changed")
 
 
 async def release_loop(ctx: AppContext, interval: float, stop: asyncio.Event) -> None:
