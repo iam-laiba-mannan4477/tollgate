@@ -249,6 +249,15 @@ input.code-in { width: 9.5em; letter-spacing: .2em; font-family: var(--mono); }
   .tbl.keepfirst th:nth-child(1), .tbl.keepfirst td:nth-child(1) { display: table-cell; }
 }
 
+/* ---- approve panel (details/summary: opens without JavaScript) ---- */
+details.panel { display: block; }
+details.panel > summary { list-style: none; display: inline-flex; width: auto; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel[open] > summary { margin-bottom: 10px; }
+.panelform { border: 1px solid var(--line2); border-radius: 12px; padding: 12px; background: var(--surface2); }
+.panelform + .panelform { margin-top: 10px; }
+.panelform .fine, .panelform .error { flex-basis: 100%; margin: 0; }
+
 /* ---- spacing helpers ---- */
 .stack-gap { margin-top: 16px; }
 .sectionhead { margin: 22px 0 12px; }

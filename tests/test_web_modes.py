@@ -57,7 +57,7 @@ def test_demo_shows_the_current_code_and_it_works(tmp_path):
     w.wall.t += 30
     page = w.client.get("/approvals").text
     import re
-    shown = re.search(r'class="code">(\d{6})<', page).group(1)
+    shown = re.search(r'name="code"[^>]*value="(\d{6})"[^>]*data-demo-code-field', page).group(1)
     assert "demo-1: sent" in w.approve("demo-1", shown).text
 
 

@@ -21,67 +21,75 @@
     });
   }
 
-  // ---- demo mode only: the code box and "Approve with demo code" ------------------------
-  var box = document.getElementById("democode");
-  var demo = box ? {
-    seconds: parseInt(box.getAttribute("data-seconds"), 10) || STEP,
-    code: box.getAttribute("data-code"),
-    next: box.getAttribute("data-next"),
-    used: box.getAttribute("data-used") === "true"
-  } : null;
+  // ---- approve panels: <details> opens without JavaScript; Cancel closes it ----------------
+  $$("[data-approve-panel]").forEach(function (panel) {
+    var cancel = panel.querySelector("[data-panel-cancel]");
+    if (cancel) {
+      cancel.addEventListener("click", function (ev) { ev.preventDefault(); panel.open = false; });
+    }
+  });
+
+  // ---- demo mode only: the code inside each approve panel -------------------------------
+  // Each demo form carries this step's code and the next step's code (fake public demo
+  // secret). If this step's code was already used, Confirm waits for the next fresh code
+  // and then sends it. The server checks it exactly like a typed code.
+  var forms = $$("form[data-demo-approve]").map(function (form) {
+    return { form: form, field: form.querySelector("[data-demo-code-field]"), auto: true,
+             seconds: parseInt(form.getAttribute("data-seconds"), 10) || STEP,
+             code: form.getAttribute("data-code"), next: form.getAttribute("data-next"),
+             used: form.getAttribute("data-used") === "true" };
+  });
   var waiting = false;
 
   // 0 = still the step the page was made in, 1 = the next step, 2+ = page is stale.
-  function stepOffset() {
+  function stepOffset(d) {
     var gone = secondsGone();
-    return gone < demo.seconds ? 0 : 1 + Math.floor((gone - demo.seconds) / STEP);
+    return gone < d.seconds ? 0 : 1 + Math.floor((gone - d.seconds) / STEP);
   }
-  // A code that has not been used yet, null if we must wait, undefined if the page is stale.
-  function freshCode() {
-    var k = stepOffset();
-    if (k === 0) { return demo.used ? null : demo.code; }
-    if (k === 1) { return demo.next; }
+  // A code not used yet, null if we must wait, undefined if the page is stale.
+  function freshCode(d) {
+    var k = stepOffset(d);
+    if (k === 0) { return d.used ? null : d.code; }
+    if (k === 1) { return d.next; }
     return undefined;
   }
+  function closeAll() { $$("[data-approve-panel]").forEach(function (p) { p.open = false; }); }
+  function send(d, code) {
+    if (d.field) { d.field.value = code; }
+    d.form.submit();             // a normal form post: the server checks the code as usual
+    closeAll();
+  }
   function showDemo() {
-    var k = stepOffset();
-    if (k >= 2) { if (!waiting) { location.reload(); } return; }
-    var left = Math.max(0, Math.ceil(demo.seconds + STEP * k - secondsGone()));
-    var codeEl = box.querySelector("[data-democode]");
-    var leftEl = box.querySelector("[data-demo-left]");
-    var bar = box.querySelector("[data-demobar]");
-    var usedEl = box.querySelector("[data-demoused]");
-    if (codeEl) { codeEl.textContent = k === 0 ? demo.code : demo.next; }
-    if (leftEl) { leftEl.textContent = String(left); }
-    if (bar) { bar.style.width = Math.round(left / STEP * 100) + "%"; }
-    if (usedEl && k >= 1) { usedEl.hidden = true; }
+    forms.forEach(function (d) {
+      if (!d.auto || !d.field || waiting) { return; }
+      d.field.value = freshCode(d) || "";
+      var used = d.form.querySelector("[data-demoused]");
+      if (used && stepOffset(d) >= 1) { used.hidden = true; }
+    });
   }
-  function submitWith(form, code) {
-    var field = form.querySelector("[data-demo-code-field]");
-    if (field) { field.value = code; }
-    form.submit();               // a normal form post: the server checks the code as usual
-  }
-  $$("form[data-demo-approve]").forEach(function (form) {
-    form.addEventListener("submit", function (ev) {
+  forms.forEach(function (d) {
+    if (d.field) { d.field.addEventListener("input", function () { d.auto = false; }); }
+    d.form.addEventListener("submit", function (ev) {
+      if (!d.auto) { closeAll(); return; }          // typed by hand: send as typed
       ev.preventDefault();
-      if (!demo || waiting) { return; }
-      var button = form.querySelector("[data-demo-button]");
-      var status = form.querySelector("[data-demo-status]");
-      var code = freshCode();
+      if (waiting) { return; }
+      var code = freshCode(d);
       if (code === undefined) { location.reload(); return; }
+      var button = d.form.querySelector("[data-demo-button]");
       if (button) { button.disabled = true; }
-      if (code) { submitWith(form, code); return; }
+      if (code) { send(d, code); return; }
       // This step's code was already used: wait for the next one instead of sending it.
       waiting = true;
+      var status = d.form.querySelector("[data-demo-status]");
       var wait = setInterval(function () {
-        var left = Math.max(0, Math.ceil(demo.seconds - secondsGone()));
+        var left = Math.max(0, Math.ceil(d.seconds - secondsGone()));
         if (status) { status.textContent = "Code already used. Waiting " + left + " s for a fresh one..."; }
-        if (stepOffset() >= 1) { clearInterval(wait); submitWith(form, demo.next); }
+        if (stepOffset(d) >= 1) { clearInterval(wait); send(d, d.next); }
       }, 250);
     });
   });
 
-  function tick() { showTimers(); if (demo) { showDemo(); } }
+  function tick() { showTimers(); showDemo(); }
   tick();
   setInterval(tick, 1000);
 })();

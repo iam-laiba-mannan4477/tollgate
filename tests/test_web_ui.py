@@ -143,26 +143,79 @@ def test_audit_filter_tabs(tmp_path):
     assert 'aria-current="true">All' in odd and "<script>" not in odd.split("<body>")[1]
 
 
-# ---- demo code wiring -------------------------------------------------------------------
-def test_demo_page_carries_current_and_next_code(tmp_path):
+# ---- demo code wiring: only inside each held payment's approve panel ---------------------
+PANEL = re.compile(r'<details class="su panel" data-approve-panel>.*?</details>', re.S)
+SIX = re.compile(r"(?<!\d)\d{6}(?!\d)")
+
+
+def _outside_panels(page: str) -> str:
+    return PANEL.sub("", page)
+
+
+def test_permanent_demo_code_card_is_gone(tmp_path):
     w = Web(tmp_path, DEMO_ENV)
     w.login()
     page = w.client.get("/approvals").text
-    box = re.search(r'id="democode"[^>]*>', page).group(0)
-    assert f'data-code="{code_at(w.secret, w.wall.t)}"' in box
-    assert f'data-next="{code_at(w.secret, w.wall.t + 30)}"' in box
-    assert 'data-used="false"' in box and "Approve with demo code" in page
-    field = re.search(r'name="code" value="(\d*)" data-demo-code-field', page).group(1)
-    assert field == code_at(w.secret, w.wall.t)
+    assert 'id="democode"' not in page and "Demo one-time code" not in page
+    assert "AUTHENTICATOR STAND-IN" not in page
+    assert page.count(">Approve with code</summary>") == 2            # one per held payment
 
 
-def test_used_code_is_not_prefilled(tmp_path):
+def test_demo_code_appears_only_inside_the_panels(tmp_path):
+    w = Web(tmp_path, DEMO_ENV)
+    w.login()
+    page = w.client.get("/approvals").text
+    now, nxt = code_at(w.secret, w.wall.t), code_at(w.secret, w.wall.t + 30)
+    panels = PANEL.findall(page)
+    assert len(panels) == 2
+    for panel in panels:
+        assert f'data-code="{now}"' in panel and f'data-next="{nxt}"' in panel
+        assert 'data-used="false"' in panel and "Demo code, filled in for you" in panel
+        field = re.search(r'name="code"[^>]*value="(\d*)"[^>]*data-demo-code-field', panel)
+        assert field and field.group(1) == now
+        assert ">Confirm</button>" in panel and "data-panel-cancel" in panel
+    outside = _outside_panels(page)
+    assert now not in outside and nxt not in outside and "data-code=" not in outside
+    assert "demo code" not in outside.lower()
+
+
+def test_no_code_anywhere_when_nothing_is_held(tmp_path):
+    w = Web(tmp_path, DEMO_ENV, demo_seed=False)
+    w.login()
+    page = w.client.get("/approvals").text
+    body = page.split("<body>")[1]
+    assert "data-approve-panel" not in page and "data-code=" not in page
+    assert code_at(w.secret, w.wall.t) not in body
+    assert code_at(w.secret, w.wall.t + 30) not in body
+    assert "Nothing is waiting for a decision" in page
+
+
+def test_real_mode_never_shows_a_code(tmp_path):
+    w = Web(tmp_path, REAL_ENV)
+    w.enroll_real()
+    propose_payment(w.ctx, "p-1", 5_000, "acct_new_y", "invoice", "please pay")
+    w.login("Robin", REAL_PASSWORD)
+    now, nxt = code_at(w.secret, w.wall.t), code_at(w.secret, w.wall.t + 30)
+    for path in LOGGED_IN_PAGES:
+        html = w.client.get(path).text.split("<body>")[1]
+        assert now not in html and nxt not in html, path
+        assert "data-code=" not in html and "data-next=" not in html, path
+        assert "demo code" not in html.lower(), path
+    page = w.client.get("/approvals").text
+    [panel] = PANEL.findall(page)
+    field = re.search(r'<input name="code"[^>]*>', panel).group(0)
+    assert "value=" not in field and "required" in field              # empty, typed by hand
+
+
+def test_used_code_is_not_prefilled_and_flagged(tmp_path):
     w = Web(tmp_path, DEMO_ENV)
     w.login()
     w.approve("demo-1", code_at(w.secret, w.wall.t))                 # uses this step's code
-    page = w.client.get("/approvals").text
-    assert 'data-used="true"' in page
-    assert re.search(r'name="code" value="" data-demo-code-field', page)
+    [panel] = PANEL.findall(w.client.get("/approvals").text)
+    assert 'data-used="true"' in panel and "data-demoused" in panel
+    assert re.search(r'name="code"[^>]*value=""[^>]*data-demo-code-field', panel)
+    field = re.search(r'<input name="code"[^>]*>', panel).group(0)
+    assert "required" not in field          # an empty field must not stop the waiting click
 
 
 def test_next_step_code_is_accepted_after_the_wait(tmp_path):
@@ -175,3 +228,13 @@ def test_next_step_code_is_accepted_after_the_wait(tmp_path):
     page = w.approve("demo-2", nxt).text
     assert "demo-2: HOLD. approved, waiting" in page               # $1,500, new recipient
     assert [i for i, _ in w.ctx.service.waiting()] == ["demo-2"]
+
+
+def test_panels_render_closed_and_work_without_javascript(tmp_path):
+    w = Web(tmp_path, DEMO_ENV)
+    w.login()
+    page = w.client.get("/approvals").text
+    assert "<details class=\"su panel\" data-approve-panel>" in page   # native, not [open]
+    assert "<details class=\"su panel\" data-approve-panel open" not in page
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "data-approve-panel" in js and 'getElementById("democode")' not in js
