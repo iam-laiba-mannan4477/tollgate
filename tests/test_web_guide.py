@@ -26,7 +26,7 @@ GUIDE = re.compile(r'<details class="guide" id="guide".*?(?=<div class="guide-ca
 TIP = re.compile(r'<li data-guide-target="([^"]*)"[^>]*>(.*?)</li>', re.S)
 TASK = re.compile(r'<li data-task="(\d+)">(.*?)</li>', re.S)
 TAG = re.compile(r"<[^>]+>")
-GLOSSARY = ["Gate", "Held", "Approve with code", "Stamp", "Cooling-off", "Circuit breaker",
+GLOSSARY = ["Gate", "Held", "Simulated proposal", "Approve with code", "Stamp", "Cooling-off", "Circuit breaker",
             "Sentinel", "Audit log", "Untrusted text", "Throwaway world", "Demo mode", "Real mode"]
 # Wording that would suggest an on-screen code. Real mode must never contain it.
 ON_SCREEN = ("filled in", "pre-filled", "prefilled", "demo code", "shown on screen",
@@ -136,8 +136,10 @@ def test_tips_point_at_real_parts_of_each_page(demo):
 
 def test_approvals_has_tips_4_and_5(demo):
     t = page_tips(demo.client.get("/approvals").text)
-    assert len(t) == 5
-    assert t[3][0] == "[data-guide=waiting]" and t[4][0] == ".demo-banner"
+    assert [x for x, _ in t] == [".sub", "[data-guide=simulate]", "[data-approve-panel] > summary",
+                                 ".apr form[action$='/reject']", "[data-guide=waiting]",
+                                 ".demo-banner"]
+    assert "the way an AI agent would, through the Gate" in t[1][1]
 
 
 def test_login_and_setup_pages_have_one_tip_each(tmp_path):
@@ -191,7 +193,7 @@ def test_demo_tasks(demo):
     g = guide(demo.client.get("/approvals").text)
     tasks = TASK.findall(g)
     n = len(tasks)
-    assert n == 7                                       # task 4 skipped: no proposal form exists
+    assert n == 8
     for i, (num, body) in enumerate(tasks, 1):
         assert num == str(i) and f"Task {i} of {n}" in body
         assert "You should see:" in body
@@ -200,7 +202,9 @@ def test_demo_tasks(demo):
     joined = unescape(" ".join(b for _, b in tasks))
     assert "$25.00" in joined and "$1,500.00" in joined and "untrusted text" in joined
     assert "Scan now" in joined and "stolen-session drill" in joined and "Reject" in joined
-    assert "Simulate an agent proposal" not in joined   # that form is not built
+    assert "Simulate an agent proposal" in tasks[3][1] and "quick-fill" in tasks[3][1]
+    assert "Task 4 of 8" in tasks[3][1]
+    assert "of 7" not in g
     assert "If approvals lock during the demo, stop the app and start it again." in g
 
 
@@ -211,6 +215,8 @@ def test_real_tasks_start_with_setup_and_never_show_a_code(real):
     assert 'href="/setup"' in tasks[0][1] and "authenticator app" in tasks[0][1]
     assert 'href="/login"' in tasks[1][1]
     assert "6-digit code from your authenticator app" in tasks[2][1]
+    assert "Simulate an agent proposal" in tasks[2][1]
+    assert "makes no example payments" not in g
     for word in ON_SCREEN:
         assert word not in g.lower(), word
 

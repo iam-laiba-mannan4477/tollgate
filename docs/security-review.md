@@ -30,6 +30,7 @@ reading the code and are marked "confirmed by reading".
 | 8 | Info | Demo cookies are not `Secure` and have no `__Host-` prefix |
 | 9 | Low | Documented limit, not fixed: the real-mode approver account is lost on restart |
 | 10 | Low | Documented limit, not fixed: the memory of used codes is lost on restart |
+| 11 | Info | Documented limit, not fixed: request ids (`demo-`, `sim-`) start again after a restart |
 
 ---
 
@@ -248,6 +249,24 @@ and a restart, all inside about a minute.
 **Suggested fix (not built):** keep the last used step with the stored account (finding 9),
 or refuse codes for the first 90 seconds after a start.
 
+## 11. Info (documented limit, not fixed): request ids start again after a restart
+
+**Where:** `tollgate/app/main.py`: `seed_demo` always uses `demo-1` and `demo-2`, and
+`AppContext.sim_count` numbers the "Simulate an agent proposal" ids `sim-1`, `sim-2`, ... from
+0 at every start. `Executor._executed_ids` (its memory of used ids) is also in memory only.
+
+**What happens:** after a restart the same ids are used again. Within one run, ids are unique
+and a used id is refused ("duplicate request id"). Across restarts, the audit log can hold two
+different payments with the same id, told apart only by time and position in the chain.
+
+**Confirmed by reading.**
+
+**Impact:** no money risk. Each run's executor refuses a duplicate id, and the payment and
+stamp state is cleared too. It only makes the audit log harder to read across restarts.
+
+**Suggested fix (not built):** add a per-start random prefix to ids, or store the counter on
+disk.
+
 ## Checked and found sound
 - **Approving or moving money:**
   - Every approval goes through `ApprovalService.authorize`, which needs a live approver
@@ -284,8 +303,9 @@ or refuse codes for the first 90 seconds after a start.
     deadlock with the executor.
 
 ## Limits of this review
-Findings 9 and 10 were added on 2026-11-12 while planning the fix for finding 1. They come
-from reading the code, and neither was fixed.
+Findings 9 and 10 were added on 2026-11-12 while planning the fix for finding 1, and
+finding 11 with the "Simulate an agent proposal" form. They come from reading the code, and
+none was fixed.
 
 One person reading the code, plus one reproduction. Nothing was run against the Braintree
 sandbox, no parallel-request test was run, and no browser was used. Results apply to this

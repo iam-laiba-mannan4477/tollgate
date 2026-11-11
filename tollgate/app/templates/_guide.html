@@ -14,6 +14,7 @@
   {%- set _ = nxt.update({"href": "/approvals", "label": "Open Approvals", "text": "Next: open Approvals and decide on the held payments."}) -%}
 {%- elif page == "approvals.html" -%}
   {%- set _ = steps.append((".sub", "This page lists held payments: ones the Gate will not send without a person. It is where you approve or reject them.")) -%}
+  {%- set _ = steps.append(("[data-guide=simulate]", "This form sends a payment request the way an AI agent would, through the Gate. It lets you see the Gate allow, hold or block a payment without a real agent.")) -%}
   {%- if pending -%}
     {%- if demo -%}
       {%- set _ = steps.append(("[data-approve-panel] > summary", "Approve with code opens a small panel with a one-time code field. Approving needs your signed-in session and a fresh code; in demo mode the code is filled in for you.")) -%}
@@ -81,22 +82,23 @@
   ("/approvals", "Approvals", "Press Approve with code on the $25.00 payment, then Confirm.", "The payment leaves Held payments and the message says it was sent."),
   ("/audit", "Activity", "Look at the newest lines at the top.", "New lines for your approval (GRANT) and the payment (ALLOW)."),
   ("/approvals", "Approvals", "Approve the $1,500.00 payment the same way.", "It moves to Approved, waiting (cooling-off) with a countdown and a Cancel button. Its hostile customer note is shown as untrusted text and is not followed."),
+  ("/approvals", "Approvals", "In Simulate an agent proposal, use each of the three quick-fill buttons and press Send through the Gate after each one.", "Each one is held for a new recipient and listed under Held payments; the hostile note is shown as untrusted text; the $12,000 one waits 15 minutes after you approve it."),
   ("/sentinel", "Sentinel", "Press Scan now.", "A score and status from real checks, and the scan log."),
   ("/drills", "Try to break it", "Run the attack drill, then the stolen-session drill (wait 10 seconds between them).", "8 of 8 attacks stopped and the stolen session refused, all in a throwaway world."),
   ("/security", "Security", "Read the settings in force.", "The limits, wait times and lockout rules that apply right now."),
-  ("/approvals", "Approvals", "Press Reject on a held payment.", "The request is removed and nothing is sent. If nothing is held any more, restart the app to get the two demo payments back."),
+  ("/approvals", "Approvals", "Press Reject on a held payment (one from task 4 works).", "The request is removed and nothing is sent."),
 ] -%}
 {%- set last_note = "If approvals lock during the demo, stop the app and start it again. Approvals unlock, the breakers start closed and the two demo payments come back." -%}
 {%- else -%}
 {%- set tasks = [
   ("/setup", "Setup", "Do the first setup: enter your name, password and alert address, scan the QR code with your authenticator app, then type the app's first code.", "Setup complete."),
   ("/login", "Login", "Log in with your name and password.", "The Approvals page."),
-  ("/approvals", "Approvals", "If a payment is held, press Approve with code, type the 6-digit code from your authenticator app, then Confirm.", "It is sent, or it waits 15 minutes if it is big. The app makes no example payments in real mode, so something must propose one first."),
+  ("/approvals", "Approvals", "Create a payment with Simulate an agent proposal (the $25 quick-fill works), then press Approve with code on it, type the 6-digit code from your authenticator app, and Confirm.", "It is held first, then sent after you confirm (a big one waits 15 minutes)."),
   ("/audit", "Activity", "Look at the newest lines at the top.", "Your login and any approval, each with an id and a reason."),
   ("/sentinel", "Sentinel", "Press Scan now.", "A score and status from real checks, and the scan log."),
   ("/drills", "Try to break it", "Run the attack drill, then the stolen-session drill (wait 10 seconds between them).", "8 of 8 attacks stopped and the stolen session refused, all in a throwaway world."),
   ("/security", "Security", "Read the settings in force.", "The limits, wait times and lockout rules that apply right now."),
-  ("/approvals", "Approvals", "If a payment is held, press Reject on it.", "The request is removed and nothing is sent."),
+  ("/approvals", "Approvals", "Create another payment with the form, then press Reject on it.", "The request is removed and nothing is sent."),
 ] -%}
 {%- set last_note = "If approvals lock after 3 wrong codes, a person must unlock them, or restart the app. A restart in real mode also clears the approver account, so setup must be done again." -%}
 {%- endif %}
@@ -123,6 +125,7 @@
       <dl class="glossary">
         <dt>Gate</dt><dd>The rule checker that looks at every proposed payment and allows it, holds it for a person, or blocks it.</dd>
         <dt>Held</dt><dd>A payment the Gate will not send until a person approves it.</dd>
+        <dt>Simulated proposal</dt><dd>A payment request you type in yourself, sent through exactly the same Gate path as an AI agent's.</dd>
         <dt>Approve with code</dt><dd>Approving a held payment with your signed-in session plus a fresh one-time code.</dd>
         <dt>Stamp</dt><dd>A single-use permission, made when you approve, that works for 5 minutes for exactly one amount and one recipient.</dd>
         <dt>Cooling-off</dt><dd>A 15-minute wait after approving a big payment, so it can still be cancelled.</dd>

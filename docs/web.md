@@ -143,13 +143,15 @@ Every page has a **Guide** button (bottom right, `templates/_guide.html`). It is
 - **What is this app?** in four short sentences;
 - **On this page**: the tips for this page. Each says what a thing is, then why it matters,
   and the last one says what to do next, with a link;
-- **Words used in this app**: one plain sentence each for Gate, Held, Approve with code,
+- **Words used in this app**: one plain sentence each for Gate, Held, Simulated proposal,
+  Approve with code,
   Stamp, Cooling-off, Circuit breaker, Sentinel, Audit log, Untrusted text, Throwaway world,
   Demo mode and Real mode;
-- **Try it yourself**: numbered tasks ("Task 3 of 7"), each with a link to its page, what to
-  do and what you should see. Demo mode has 7 tasks; the "Simulate an agent proposal" task is
-  left out because that form does not exist. Real mode has 8, starting with setup and login,
-  with the code only from your phone. Ticked tasks are remembered in this browser tab;
+- **Try it yourself**: numbered tasks ("Task 3 of 8"), each with a link to its page, what to
+  do and what you should see. Demo mode has 8 tasks (task 4 uses the three quick-fill buttons
+  of "Simulate an agent proposal"). Real mode has 8, starting with setup and login, then
+  creating a payment with the form and approving it with the code from your phone. Ticked
+  tasks are remembered in this browser tab;
 - **Replay intro**.
 
 `static/guide.js` (optional, separate from `app.js`) adds the **page tour**: one note card
@@ -185,3 +187,39 @@ To replay it, for example for a screen recording:
 
 This plays it even if it was already seen in this tab. Reduced motion still skips it, on
 purpose. The replay was tested under Node with a fake page, **not in a real browser**.
+
+## Simulate an agent proposal (a simulation, in both modes)
+The Approvals page has a card labelled **SIMULATION**: "Simulate an agent proposal". You play
+the AI agent. In real mode you play both roles, the agent that proposes and the owner who
+approves, so this is a test tool and not separation of duties.
+
+- **Form:** amount in dollars, recipient, and an optional note (shown as untrusted text).
+  `POST /approvals/simulate` needs a logged-in approver session and the CSRF token; an
+  `Authorization` header is refused.
+- **Same path as an agent:** the server makes the id itself (`sim-1`, `sim-2`, ...) and
+  calls `propose_payment()`, which goes through the drafter handle. The request is marked as
+  coming from the agent, carries no stamp, and the route never calls the executor or approves
+  anything. The Gate decides as normal and the result is shown in plain words:
+  - "HELD": listed under Held payments; approving still needs "Approve with code";
+  - "BLOCKED": nothing was sent;
+  - "ALLOWED by the Gate and sent automatically": a known recipient at or under $1,000. Next
+    to Send: "If the Gate allows this, it is sent automatically."
+- **Quick-fill:** links that only fill the form (`?fill=small|hostile|large`): $25 to a new
+  recipient, $1,500 with a hostile note, $12,000 (over $10,000). You still press Send. They
+  work without JavaScript.
+- **Limits (approved):** at most **$25,000.00** per proposal, the same as the daily approval
+  cap, so every held simulated payment can be approved; amounts are positive with at most 2
+  decimals, and are converted to whole cents without floats. At most 1 proposal every **2 s**
+  per session, and at most **20** held payments at once. The recipient must be 3 to 64 letters,
+  digits or `_ . : @ -`; the note can be at most 300 characters. Each refusal is shown in
+  plain words.
+- **Audit:** the Gate's decision is written exactly as for an agent proposal (one `ALLOW`,
+  `HOLD` or `BLOCK` line with the `sim-` id). No new audit codes. Refusals by validation or a
+  limit write nothing, because nothing was proposed. An unexpected error writes an `ERROR`
+  line with the error type only, and nothing is sent.
+- **Note under the form:** a third payment to the same recipient within 10 minutes is blocked
+  by the Gate's velocity rule and trips the live circuit breaker; a person must then reset it
+  on the Sentinel page. Sentinel may also report it.
+- **Limit:** the `sim-` numbers start again at 1 after a restart, so the same id can appear
+  more than once in the audit log across restarts (security review finding 11).
+- Tested with FastAPI's test client; **not used in a real browser.**

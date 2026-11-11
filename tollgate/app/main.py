@@ -50,6 +50,13 @@ DEMO_PASSWORD = "demo-password-not-secret"
 DEMO_OWNER = "owner@demo.invalid"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# "Simulate an agent proposal" form (approved limits). The cap equals the $25,000 daily
+# approval cap, so every held simulated payment can be approved.
+SIM_MAX_CENTS = 2_500_000          # $25,000.00 per proposal
+SIM_EVERY_SECONDS = 2.0            # at most 1 proposal every 2 s per session
+SIM_MAX_HELD = 20                  # at most 20 held payments waiting at once
+SIM_NOTE_MAX = 300
+
 Clock = Callable[[], float]
 
 
@@ -77,6 +84,8 @@ class AppContext:
     drills: Any = None                 # DrillStore (Try to break it), memory only
     last_scan: float | None = None     # monotonic time of the last "Scan now"
     last_drill: float | None = None    # monotonic time of the last drill
+    sim_count: int = 0                 # simulated proposals made (ids sim-1, sim-2, ...)
+    sim_last: dict[str, float] = field(default_factory=dict)  # session token -> last time
     flash: dict[str, str] = field(default_factory=dict)
     seq: Any = field(default_factory=lambda: itertools.count(1))
 

@@ -323,6 +323,14 @@ input.code-in.demo-filled { background: var(--pearl); color: var(--ink); border:
   .guide-in { animation: none; }
 }
 
+/* ---- Simulate an agent proposal ---- */
+.sim { margin-top: 16px; }
+.sim-fill { margin: 10px 0 4px; }
+.simform { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.simform label { flex: 1 1 160px; min-width: 0; }
+.simform label.wide { flex-basis: 100%; }
+.simform .fine { flex-basis: 100%; margin: 0; }
+
 /* ---- spacing helpers ---- */
 .stack-gap { margin-top: 16px; }
 .sectionhead { margin: 22px 0 12px; }
