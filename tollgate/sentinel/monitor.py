@@ -5,6 +5,13 @@ carry a monotonic time, so for those the monitor uses the wall time at which it 
 the line. Only the last 30 minutes count; a finding resolves once its pattern leaves the
 window. Lines written by the agent loop ("agent ...") and by Sentinel itself are ignored.
 
+Restarts (security review finding 1): the live Sentinel starts reading at the END of the
+audit file as it is at start-up, so lines from before a restart never become events (the
+file itself is never edited). A RESET line (a person closed a breaker) drops the lockout and
+failed-code events seen before it; payment-pattern events keep counting. If the file is ever
+shorter than what was already read, lines were removed: the reader starts again from the top
+(fail closed: stricter, never looser).
+
 Thresholds (approved):
   burst            >= 5 Gate decisions within 60 s                          medium
   repeated blocks  >= 3 BLOCKs to one recipient within 10 min               high
@@ -47,15 +54,25 @@ class Event:
 class AuditReader:
     """Reads new audit lines each round; remembers when it first saw service events."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, start_at_end: bool = False) -> None:
         self._path = Path(path)
-        self._seen_lines = 0
         self._events: list[Event] = []
+        self._seen_lines = len(self._lines()) if start_at_end else 0
+        self.skipped_at_start = self._seen_lines
+
+    def _lines(self) -> list[str]:
+        return self._path.read_text(encoding="utf-8").splitlines() if self._path.exists() else []
 
     def read(self, now_wall: float) -> list[Event]:
         if self._path.exists():
-            lines = self._path.read_text(encoding="utf-8").splitlines()
+            lines = self._lines()
+            if len(lines) < self._seen_lines:          # lines were removed: reread (stricter)
+                self._seen_lines = 0
+                self._events = []
             for raw in lines[self._seen_lines:]:
+                if _decision_of(raw) == "RESET":       # a person reset a breaker
+                    self._events = [e for e in self._events if e.decision not in SERVICE_EVENTS]
+                    continue
                 event = _to_event(raw, now_wall)
                 if event is not None:
                     self._events.append(event)
@@ -63,6 +80,14 @@ class AuditReader:
         start = now_wall - WINDOW_SECONDS
         self._events = [e for e in self._events if e.time >= start]
         return list(self._events)
+
+
+def _decision_of(raw: str) -> str:
+    try:
+        row = json.loads(raw)
+    except ValueError:
+        return ""
+    return str(row.get("decision", "")) if isinstance(row, dict) else ""
 
 
 def _to_event(raw: str, now_wall: float) -> Event | None:

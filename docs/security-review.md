@@ -15,9 +15,12 @@ and a fresh code, no secret leak, and no CSRF gap. There are 3 medium and 3 low 
 2 informational notes. Only finding 1 was reproduced by running code; the others are from
 reading the code and are marked "confirmed by reading".
 
+**Status (2026-11-12):** finding 1 is **fixed** (see below). Findings 9 and 10 were added as
+**documented limits, not fixed**. All other findings are still open.
+
 | # | Severity | Summary |
 |---|----------|---------|
-| 1 | Medium | A restart does not clear a lockout: Sentinel re-reads old LOCKOUT lines and trips the breakers again |
+| 1 | Medium | **Fixed.** A restart did not clear a lockout: Sentinel re-read old LOCKOUT lines and tripped the breakers again |
 | 2 | Medium | Demo login (public password and public TOTP secret) can be combined with the real Braintree sandbox backend |
 | 3 | Medium | A queued real-mode breaker reset also closes a breaker that tripped again, for a new reason, during the wait |
 | 4 | Low | The login and setup-confirm rate limits are check-then-act and can be raced with parallel requests |
@@ -25,10 +28,40 @@ reading the code and are marked "confirmed by reading".
 | 6 | Low | Approval-time velocity uses its own default Gate settings, so a Sentinel tightening does not reach it |
 | 7 | Info | Real mode: whoever opens `/setup` first becomes the approver |
 | 8 | Info | Demo cookies are not `Secure` and have no `__Host-` prefix |
+| 9 | Low | Documented limit, not fixed: the real-mode approver account is lost on restart |
+| 10 | Low | Documented limit, not fixed: the memory of used codes is lost on restart |
 
 ---
 
-## 1. Medium: a restart does not clear a lockout; Sentinel re-trips the breakers
+## 1. Medium: a restart does not clear a lockout; Sentinel re-trips the breakers (FIXED)
+
+**Fixed on 2026-11-12.** `tollgate/sentinel/monitor.py` (`AuditReader`) and
+`tollgate/sentinel/runner.py` (the live Sentinel builds its reader with `start_at_end=True`):
+- The live monitor starts reading at the **end** of the audit file as it is at start-up, so
+  lines from before a restart never become events. The file is never edited, rotated or
+  shortened, and the hash chain is untouched.
+- A `RESET` line (a person closed a breaker) drops the LOCKOUT and FACTORFAIL events seen
+  before it. Payment-pattern events (bursts, repeated blocks, split payments) keep counting.
+- If the file is ever shorter than what was already read (lines removed), the reader starts
+  again from the top. That is stricter, never looser.
+- No threshold, severity, action or audit code changed, and the tighten-only autofix is
+  untouched. A new lockout after the restart still trips both breakers.
+- Tests: `tests/test_sentinel_restart.py`:
+  - a restart with an old LOCKOUT leaves the breakers closed, with no TRIP line, the earlier
+    audit bytes unchanged and the chain valid;
+  - a new lockout after the restart is a high finding and trips the breakers;
+  - a new wrong code after the restart is still seen;
+  - a RESET drops lockout and failed-code events but keeps a burst;
+  - a lockout after a RESET still counts;
+  - only old lines are skipped at start-up;
+  - a shortened file is read again from the top;
+  - the full demo story: lock out, restart, approvals unlocked, breakers closed, no re-trip.
+
+  Re-running the original reproduction now prints `after first monitor round: breaker False []`.
+- Limit: a slow pattern that spans a restart is not linked up. The Gate's own memory of recent
+  payments is also cleared by a restart.
+
+The original report follows.
 
 **Where:** `tollgate/sentinel/monitor.py:52` (`self._seen_lines = 0`) and
 `tollgate/sentinel/monitor.py:75` (`when = now_wall` for service events).
@@ -175,6 +208,46 @@ localhost-only.
 
 ---
 
+## 9. Low (documented limit, not fixed): the real-mode approver account is lost on restart
+
+**Where:** `tollgate/approval/accounts.py` (`ApproverAccount`: name, password hash and TOTP
+checker are plain attributes in memory) and `tollgate/app/main.py:117` (a new, unenrolled
+account at every start in real mode).
+
+**What happens:** only the audit log, outbox and incident reports are written to disk. After
+a restart in real mode the app has no approver, so setup must be done again, and whoever
+reaches `/setup` first becomes the approver (finding 7).
+
+**Confirmed by reading:** no code writes the account anywhere. A grep for file writes in
+`tollgate/` finds only the audit log, the outbox and the incident reports.
+
+**Impact:** an operations gap rather than a way in: the app listens on 127.0.0.1 only, and
+held payments are also cleared by a restart. The window is between a restart and the owner
+finishing setup.
+
+**Suggested fix (not built):** store the account (name, password hash with its round count,
+TOTP secret encrypted at rest, alert destination) in a file only the app user can read, or
+require a one-time setup token printed at start-up (see finding 7).
+
+## 10. Low (documented limit, not fixed): the memory of used codes is lost on restart
+
+**Where:** `tollgate/approval/totp.py` (`TotpChecker._last_used_step`, in memory only).
+
+**What happens:** replay protection remembers the last accepted 30-second step only in
+memory. After a restart, a code used just before the restart can be accepted once more while
+it is still inside the accepted window (current step plus one either side). That is at most
+about 60 to 90 seconds after it was first shown.
+
+**Confirmed by reading.** In real mode the account is also lost on restart (finding 9), so
+this matters only once something keeps the account across restarts. In demo mode the secret
+is public anyway.
+
+**Impact:** low. It needs the old code, the approver session (sessions also end on restart)
+and a restart, all inside about a minute.
+
+**Suggested fix (not built):** keep the last used step with the stored account (finding 9),
+or refuse codes for the first 90 seconds after a start.
+
 ## Checked and found sound
 - **Approving or moving money:**
   - Every approval goes through `ApprovalService.authorize`, which needs a live approver
@@ -211,6 +284,9 @@ localhost-only.
     deadlock with the executor.
 
 ## Limits of this review
+Findings 9 and 10 were added on 2026-11-12 while planning the fix for finding 1. They come
+from reading the code, and neither was fixed.
+
 One person reading the code, plus one reproduction. Nothing was run against the Braintree
 sandbox, no parallel-request test was run, and no browser was used. Results apply to this
 code and these tests only.

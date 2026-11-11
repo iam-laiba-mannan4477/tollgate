@@ -86,7 +86,7 @@
   ("/security", "Security", "Read the settings in force.", "The limits, wait times and lockout rules that apply right now."),
   ("/approvals", "Approvals", "Press Reject on a held payment.", "The request is removed and nothing is sent. If nothing is held any more, restart the app to get the two demo payments back."),
 ] -%}
-{%- set last_note = "If approvals lock during the demo, stop the app and start it again." -%}
+{%- set last_note = "If approvals lock during the demo, stop the app and start it again. Approvals unlock, the breakers start closed and the two demo payments come back." -%}
 {%- else -%}
 {%- set tasks = [
   ("/setup", "Setup", "Do the first setup: enter your name, password and alert address, scan the QR code with your authenticator app, then type the app's first code.", "Setup complete."),
@@ -98,7 +98,7 @@
   ("/security", "Security", "Read the settings in force.", "The limits, wait times and lockout rules that apply right now."),
   ("/approvals", "Approvals", "If a payment is held, press Reject on it.", "The request is removed and nothing is sent."),
 ] -%}
-{%- set last_note = "If approvals lock after 3 wrong codes, a person must unlock them, or restart the app." -%}
+{%- set last_note = "If approvals lock after 3 wrong codes, a person must unlock them, or restart the app. A restart in real mode also clears the approver account, so setup must be done again." -%}
 {%- endif %}
 <details class="guide" id="guide" data-guide-page="{{ page|replace('.html', '') }}" data-guide-mode="{{ 'demo' if demo else 'real' }}">
   <summary class="guide-btn" aria-label="Guide: how to use this page">

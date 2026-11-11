@@ -44,7 +44,8 @@ class Sentinel:
         self._audit = AuditLog(audit_path, wall_clock)
         self._tightener = Tightener(executor, desk, service, self._audit)
         self._store = FindingStore()
-        self._reader = monitor.AuditReader(audit_path)
+        # Only lines written after start-up count (old lines must not re-trip on restart).
+        self._reader = monitor.AuditReader(audit_path, start_at_end=True)
         self._reports = ReportWriter(self._data_dir / "incidents.jsonl", report_model)
         self._last_run: dict[str, float] = {}
         self._last_summary: float | None = None

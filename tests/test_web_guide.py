@@ -291,3 +291,13 @@ def test_placement_rule():
     spot = r["besideButton"]
     assert spot is not None and r["tooSmall"] is None
     assert spot["left"] + 340 <= 1280 - 12 and spot["top"] >= 340 + 12   # below, inside, no overlap
+
+
+def test_restart_notes_match_what_a_restart_really_clears(demo, real):
+    """Security review finding 1 is fixed, so the demo note is true; real mode also says a
+    restart clears the approver account (finding 9)."""
+    d = guide(demo.client.get("/approvals").text)
+    assert ("stop the app and start it again. Approvals unlock, the breakers start closed and "
+            "the two demo payments come back.") in d
+    r = guide(real.client.get("/approvals").text)
+    assert "clears the approver account, so setup must be done again" in r

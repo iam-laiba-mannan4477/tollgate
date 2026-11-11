@@ -88,8 +88,11 @@ There is no button. A tripped breaker stays open until one of these:
    `desk.reset_breaker(person, reason)` (both need a named person and a reason, both audited
    as `RESET`). If approvals were locked by 3 bad codes, also
    `approval_service.unlock(person, reason)` (audited as `UNLOCK`).
-2. **Restarting the app.** Everything is in memory, so a restart starts with closed breakers
-   and unlocked approvals. The audit log keeps the history.
+2. **Restarting the app.** Breakers and the approvals lock are in memory, so a restart starts
+   with closed breakers and unlocked approvals. The audit log keeps the history. Sentinel's
+   live monitor starts reading at the end of the audit file as it is at start-up, so old
+   LOCKOUT lines do not trip the breakers again (security review finding 1, fixed). A new
+   lockout after the restart still trips them.
 
 3. **The Sentinel page** (`/sentinel`, "Reset breaker"), under these approved rules:
    - needs the logged-in approver session, the CSRF token and a **fresh code**; a wrong code
@@ -133,6 +136,13 @@ There is no button. A tripped breaker stays open until one of these:
   real model.
 - The patterns find key-shaped text only; a secret in an unusual format will be missed.
 - The monitor sees only what reaches the audit log, and only the last 30 minutes.
+- After a restart the monitor counts only lines written since start-up, so a slow pattern
+  that spans a restart (split payments, repeated blocks) is not linked up. The Gate's own
+  memory of recent payments is also cleared by a restart.
+- When a person resets a breaker (a `RESET` line), the monitor forgets the lockout and
+  failed-code events before it; payment-pattern events (bursts, repeated blocks, split
+  payments) keep counting. If the audit file is ever shorter than what was read, the monitor
+  reads it again from the top (stricter).
 - Findings and the score are in memory and are lost on restart (the audit lines remain).
 - Canaries prove the frozen attack set is stopped by today's code; they cannot prove that
   new, unknown attacks are stopped.

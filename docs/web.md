@@ -114,14 +114,16 @@ jobs; a Sentinel error never stops a release. With `off` it is exactly the loop 
   does not stick.
 - Real-mode first setup: whoever reaches `/setup` first becomes the approver. The app only
   listens on 127.0.0.1, so run setup right after starting it.
-- No unlock page: after a lockout, approvals stay locked until restart (state is in memory).
+- No unlock page: after a lockout, approvals stay locked until a restart (state is in
+  memory; see "What a restart clears" in the README).
   This is deliberate (stricter); unlocking needs a person at the code level.
 - The new authenticator from a reset is not confirmed with a code before it applies.
 - Login timing differs slightly for an unknown name vs a wrong password.
 - No agent intake in the app yet: in real mode the held list is empty until code submits
   proposals through the drafter handle.
-- Everything is in memory and lost on restart, including sessions and waiting approvals
-  (waiting approvals then never release: fail closed).
+- Everything except the audit log, outbox and incident reports is in memory and lost on
+  restart, including sessions, waiting approvals (they then never release: fail closed)
+  and, in real mode, the approver account (setup must be done again).
 - A clean Ctrl+C shutdown of the live server was not tested; shutdown is tested through the
   test client's app lifecycle only.
 
@@ -132,7 +134,8 @@ the page flow (not sticky) and the side nav carries a DEMO label in demo mode. T
 session drill uses FastAPI's in-process test client (httpx, already in requirements.txt).
 Not checked in a real browser.
 
-If approvals lock during the demo, stop and restart the app.
+If approvals lock during the demo, stop and restart the app. Approvals unlock and the
+breakers start closed; Sentinel does not re-trip them from old audit lines.
 
 ## Page guide ("How to use this page")
 Every page has a **Guide** button (bottom right, `templates/_guide.html`). It is a native
