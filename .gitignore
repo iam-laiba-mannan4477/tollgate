@@ -10,3 +10,19 @@ __pycache__/
 data/
 
 design/
+
+# other virtual environments
+venv/
+env/
+.venv*/
+# local databases
+*.db
+*.sqlite
+*.sqlite3
+# screen recordings and videos
+recordings/
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.avi

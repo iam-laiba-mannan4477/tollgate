@@ -2,10 +2,13 @@
 
 A payment firewall for AI agents.
 
+**Demo video (2:57): https://youtu.be/dzwcUWZqIKQ**
+
 > **Sandbox only. Fake money.** Tollgate runs against the Braintree **sandbox**
 > (or a built-in mock). It never touches real cards, real money or real customer data.
 
-**Problem:** AI agents are being given the power to move money, and nothing independent stands between a tricked agent and a real transaction. An agent reads text (refund requests, customer notes, order comments), and anything it reads can carry an attacker's instructions.
+**Problem:** AI agents are being given the power to move money, and nothing independent stands between a tricked agent and a real transaction. An agent reads text (refund requests, customer notes, order comments), and anything it reads can carry an attacker's instructions. This is prompt injection,
+listed as LLM01 in the OWASP Top 10 for LLM Applications.
 
 **Evidence:** Card networks and bank technology vendors are building ways for AI agents to pay. Several major US banks (JPMorgan, Schwab, Citi) have said they block or limit outside agents from acting inside customer accounts; reported concerns include that an agent using a customer's login has no separate limits, approvals or audit trail, and prompt injection. In 2026 Binance reported that attackers reached its internal wallet signing service through engineers' computers, an internal AI tool and a stolen deployment token, and started transactions outside the normal withdrawal process (about $6.34 billion affected, per Binance).
 
@@ -15,19 +18,70 @@ A payment firewall for AI agents.
 
 **Limits:** Sandbox and mock only. Tollgate protects only the paths that go through it; an attacker holding raw payment API keys bypasses it. Disputes and subscriptions are SIMULATED.
 
-## Quick start (Windows PowerShell)
+## Try it in 60 seconds (demo mode, no keys needed)
+
+Windows PowerShell, Python 3.12 (the version tested):
 
 ```powershell
-.venv\Scripts\pip.exe install -r requirements.txt
+git clone https://github.com/iam-laiba-mannan4477/tollgate.git
+cd tollgate
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe scripts\run_app.py
+```
+
+1. Open http://127.0.0.1:8000 and log in as `demo-owner` / `demo-password-not-secret`
+   (a fake, documented demo account).
+2. On **Approvals**, press **Approve with code** on the $25.00 payment, then **Confirm**: the
+   demo code is already filled in. It is sent.
+3. Approve the $1,500.00 payment the same way: it waits 15 minutes (cooling-off) and can be
+   cancelled. Its hostile note is shown as untrusted text, not followed.
+4. Use **Simulate an agent proposal** to send your own payment through the Gate.
+5. Open **Try to break it** and run the attack drill: 8 of 8 attacks stopped, in a throwaway
+   world.
+
+The **Guide** button (bottom right) explains every page and has a "Try it yourself" list.
+No keys, no network: demo mode uses the built-in mock backend (`TOLLGATE_MODE=mock`).
+
+## Judge checklist
+- [ ] The app starts and the demo login works (above).
+- [ ] An agent-style proposal to a new recipient is **held**, not sent (Approvals).
+- [ ] Approving needs the session **and** a one-time code; there is no approve path without one.
+- [ ] A big payment waits out a 15-minute cooling-off and can be cancelled.
+- [ ] A third payment to one recipient within 10 minutes is **blocked** and trips the breaker.
+- [ ] Every decision is in **Activity** (hash-chained audit log, "chain OK").
+- [ ] **Sentinel**: Scan now gives a real score; it can only tighten settings.
+- [ ] **Try to break it**: 8 of 8 attacks stopped; the stolen-session drill is refused.
+- [ ] Tests: `.venv\Scripts\python.exe -m pytest -q` gives 681 passed, 3 skipped.
+
+## Tests
+
+```powershell
 .venv\Scripts\python.exe -m pytest -q
 ```
 
-Mode is set by `TOLLGATE_MODE`:
-- `mock` (default): no keys needed.
-- `sandbox`: uses Braintree sandbox keys from `.env` (copy `.env.example`).
+## Braintree sandbox (optional; test money only)
 
-Smoke test (sandbox keys required): `.venv\Scripts\python.exe scripts\smoke_test.py`
-prints `client token OK` on success.
+Only Braintree's **sandbox** is used, with test money: the code is hard-wired to
+`braintree.Environment.Sandbox` and refuses any other environment, and charges use
+Braintree's sandbox test nonce, never a real card. **Disputes and subscriptions are
+SIMULATED** in memory; only charges and refunds call Braintree.
+
+1. Create a free sandbox account at https://sandbox.braintreegateway.com and copy the
+   merchant ID, public key and private key from the API keys page of the sandbox
+   control panel.
+2. Copy `.env.example` to `.env` and fill in **sandbox** values only. Never commit `.env`.
+   - `BRAINTREE_MERCHANT_ID`, `BRAINTREE_PUBLIC_KEY`, `BRAINTREE_PRIVATE_KEY`
+   - `TOLLGATE_MODE=sandbox` (default `mock`: no keys, no network; any other value stops
+     startup)
+3. Check: `.venv\Scripts\python.exe scripts\smoke_test.py` prints `client token OK`.
+4. One real sandbox charge and refund through the Gate and executor:
+   `$env:TOLLGATE_MODE="sandbox"; .venv\Scripts\python.exe scripts\sandbox_demo.py`.
+   On 2026-11-11 this ran against the sandbox: HOLD for a new recipient, step-up granted,
+   a $1.00 charge, then a $1.00 refund, with a valid audit chain.
+
+Use the sandbox backend with real login mode (`TOLLGATE_AUTH_MODE=real`). Demo login has a
+public password and code secret (see security review finding 2).
 
 ## Run the web app
 
@@ -36,8 +90,8 @@ prints `client token OK` on success.
 ```
 
 Open http://127.0.0.1:8000. Demo mode is the default: log in as `demo-owner` /
-`demo-password-not-secret` (a fake, documented demo account); the approvals page shows the
-current one-time code. For real mode (`TOLLGATE_AUTH_MODE=real`, QR setup, your own
+`demo-password-not-secret` (a fake, documented demo account); the one-time code is filled in
+for you inside each payment's "Approve with code" panel. For real mode (`TOLLGATE_AUTH_MODE=real`, QR setup, your own
 authenticator app) see [docs/web.md](docs/web.md). The app listens on 127.0.0.1 only.
 
 If approvals lock during the demo (3 wrong codes), stop the app and start it again: approvals
@@ -64,7 +118,7 @@ in memory, so stopping and starting the app clears it:
 Demo mode creates its two example payments again on every start.
 
 
-## What works now (after Phase 3d)
+## What works now
 
 Last full run, mock mode, no network: **681 passed, 3 skipped** (684 collected). The skipped
 tests make a real call (one Braintree sandbox, one Groq, one Claude) and run only when those
@@ -73,9 +127,9 @@ keys are set; all three were skipped in this run.
 | Part | What it does | Tests |
 |------|--------------|-------|
 | Gate rules | Decide ALLOW, HOLD (needs a person) or BLOCK for each request. Any error means BLOCK. | 30 rules + 18 request checks |
-| Approval stamps | A stamp works once, for one amount and recipient, for 5 minutes. | 17 |
+| Approval stamps | A stamp works once, for one amount and recipient, for 5 minutes (300 s; the code refuses anything longer). Roadmap: the 5-minute stamp lifetime is a conservative default. We are improving this and will make the window as short as possible. | 17 |
 | Audit log | Records every decision; editing, deleting or reordering lines is detected. All writers to one file share one lock. | 11 (+1 thread test in step-up) |
-| Executor | The only code that moves money: re-checks the Gate, needs a stamp for HOLD, trips the breaker on too many payments. A stamp now needs a step-up grant, not just a name. | 20 |
+| Executor | The only code that moves money: re-checks the Gate, needs a stamp for HOLD, and blocks a third payment to one recipient within 10 minutes and trips the breaker. Up to $1,000 to a known recipient is allowed without a person. A stamp now needs a step-up grant, not just a name. | 20 |
 | Step-up approval | Approving needs the approver's session **and** a one-time TOTP code. A stolen session alone, the agent role, and wrong, replayed or expired codes are refused. Over $10,000 (or over $1,000 to a new recipient) waits 15 minutes; the owner is notified (outbox **file**, no real email) and can cancel. 24 h cap of $25,000 counts waiting approvals too. 3 bad codes lock approvals and trip the breaker. At release the Gate and breaker are checked again. Settings changes need a fresh code and wait too. | 68 |
 | Payment backends | Mock money in memory. Braintree code checked offline against a fake gateway: exact cents, refuses anything but sandbox, errors give no details. (The real sandbox call was skipped in this run.) | 18 |
 | Mode switch | `mock` or `sandbox` only; anything else is an error. | 7 |
@@ -86,7 +140,7 @@ keys are set; all three were skipped in this run.
 | Web login and sessions | The owner logs in with name and password; the agent has no login. Signed HttpOnly, SameSite=Strict cookies; sessions end after 1 hour, or 15 minutes idle, and on logout. 5 failed logins in a minute (per name or IP) lock login for 15 minutes. | 18 |
 | CSRF | Every form that changes something needs a matching token; missing or wrong is refused and audited. | 10 |
 | Web attacks | A stolen session with no code cannot approve (3 tries lock approvals, trip the breaker, end the session). Any `Authorization` header, a forged or wrongly signed cookie, and the agent role are refused at approve. Untrusted text is shown escaped. No money moved in any of them. | 12 |
-| Demo and real modes | `TOLLGATE_AUTH_MODE` = `demo` (default: DEMO banner on every page, documented fake account, code shown on screen, fake secret only) or `real` (no default account, 12+ character password, code never shown, fake secret refused, session key required). Anything else stops startup. Security headers (frame blocking, nosniff, strict CSP with no inline scripts, no-referrer) on every response, errors included. | 24 |
+| Demo and real modes | `TOLLGATE_AUTH_MODE` = `demo` (default: DEMO banner on every page, documented fake account, code filled in for you inside the Approve panel, fake secret only) or `real` (no default account, 12+ character password, code never shown, fake secret refused, session key required). Anything else stops startup. Security headers (frame blocking, nosniff, strict CSP with no inline scripts, no-referrer) on every response, errors included. | 24 |
 | QR setup | Real mode: QR code shown once, finished only by the first code from the app, in the same browser, within 10 minutes. Re-running it needs the current code and waits 15 minutes. The secret never appears in the audit log, outbox or Python logs. | 7 |
 | Release loop | A background loop calls `release_due()` every 5 seconds: releases due approvals, never cancelled ones, logs errors and releases nothing on error, stops on shutdown. With Sentinel on, the same loop also runs Sentinel. | 4 |
 | Web pages (look) | Overview, approvals, activity, security, login and setup pages in the approved design. DEMO banner at the top of every demo page, never in real mode. No inline scripts or styles, no external files (strict CSP kept). Each held payment has one "Approve with code" button that opens a small panel (native `<details>`, works without JavaScript) with the code field, Confirm and Cancel; no permanent code card. Demo only: the field is pre-filled with the demo code in high contrast, and a used code shows the next code and makes Confirm wait until it is fresh. The live page has no stolen-session button (a note links to the throwaway drill). No code appears when nothing is held, and never in real mode. Before Sentinel's first scan no score is shown (nothing faked). The JavaScript and the phone-width layout were not run in a browser. | 21 |
@@ -104,7 +158,25 @@ keys are set; all three were skipped in this run.
 | Sentinel: tighten-only | Can only trip breakers or set a loosened setting back to the baseline. The executor's new `tighten_config` refuses anything looser, equal or invalid. Sentinel code never approves, sends or loosens (checked in code and in a full run). | 35 |
 | Sentinel: score, reports, schedule | Score 100 minus 40/25/10/3 per open critical/high/medium/low finding (any critical = "at risk"). One plain report per finding from the keyless scripted model, masked and capped; advisory only. Runs every 60 s / 10 min / 15 min inside the app loop; `TOLLGATE_SENTINEL=off` keeps the old loop. A fresh demo clone starts with no findings and never trips a breaker. A real model for reports is **not wired in** (untested). | 32 |
 
-Limits: step-up approval **reduces** the risk of a stolen approver session; it does not
+## Honest limits
+- **Sandbox and mock only.** Nothing here was built or tested for real money.
+- **It only protects what goes through it.** An attacker holding the raw Braintree API keys
+  bypasses Tollgate.
+- **Disputes and subscriptions are SIMULATED** in memory. Only charges and refunds call
+  Braintree.
+- **Not run in a real browser.** The web app was tested with FastAPI's test client and over
+  real HTTP with `curl`; the JavaScript (guide tour, intro, the waiting Confirm) ran under
+  Node with a fake page. Nobody clicked through it in Chrome or Firefox.
+- **State is in memory.** A restart clears the approver account in real mode, held and
+  waiting payments, breakers and locks (see "What a restart clears").
+- **The agent is scripted by default.** Groq and Claude providers exist but were tested with
+  a fake HTTP client only.
+- **Open security findings** are listed in [docs/security-review.md](docs/security-review.md)
+  (two medium: demo login with the sandbox backend, and a queued reset closing a newer trip).
+- The evidence paragraph above cites public reports; it is background, not something these
+  tests check.
+
+Step-up approval **reduces** the risk of a stolen approver session; it does not
 remove it. Someone holding both the session and the authenticator can still approve, and the
 15-minute wait only helps if the owner sees the alert (here a file, not email). Tested with
 the fake mock TOTP secret and fake clocks only. By default the agent uses a scripted model,
@@ -115,6 +187,15 @@ cookie on plain `http://127.0.0.1` is **untested** in a browser. Real-mode QR se
 with codes computed by the tests, not with Google Authenticator. Results apply to this
 sandbox and these tests only. Details:
 [docs/gate.md](docs/gate.md), [docs/executor.md](docs/executor.md),
-[docs/agent-policy.md](docs/agent-policy.md), [docs/web.md](docs/web.md), [docs/sentinel.md](docs/sentinel.md).
+[docs/agent-policy.md](docs/agent-policy.md), [docs/web.md](docs/web.md), [docs/sentinel.md](docs/sentinel.md),
+[docs/security-review.md](docs/security-review.md).
 
-License: MIT.
+## Built with Claude
+This project was written with Claude Code (Anthropic's coding assistant). A person set the
+goals, rules and limits, reviewed and approved each plan, and ran, committed and pushed every
+change. Claude wrote the code, tests and docs under those rules: sandbox only, never read
+`.env`, tighten-only Sentinel, fail closed, and claim nothing the tests do not show. Commits
+it helped with carry a `Co-Authored-By: Claude` line.
+
+## License
+MIT. See [LICENSE](LICENSE).
